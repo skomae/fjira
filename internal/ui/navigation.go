@@ -191,6 +191,17 @@ func NewOpenBarItem() *app.ActionBarItem {
 	}
 }
 
+func NewSearchItem() *app.ActionBarItem {
+	return &app.ActionBarItem{
+		Id:          0,
+		Text1:       "Search ",
+		Text2:       "[/]",
+		Text1Style:  bottomBarItemDefaultStyle(),
+		Text2Style:  bottomBarActionBarKeyBold(),
+		TriggerRune: 0,
+	}
+}
+
 func NewSaveBarItem() *app.ActionBarItem {
 	return &app.ActionBarItem{
 		Id:         int(ActionYes),

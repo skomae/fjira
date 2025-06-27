@@ -2,11 +2,12 @@ package boards
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/mk-5/fjira/internal/app"
 	"github.com/mk-5/fjira/internal/jira"
 	"github.com/mk-5/fjira/internal/ui"
-	"strings"
 )
 
 const (
@@ -103,7 +104,7 @@ func NewBoardView(project *jira.Project, boardConfiguration *jira.BoardConfigura
 		highlightedIssue:       &jira.Issue{},
 		columnSize:             28,
 		columnHeaderStyle:      app.DefaultStyle().Background(app.Color("boards.headers.background")).Foreground(app.Color("boards.headers.foreground")),
-		issueStyle:             app.DefaultStyle().Background(app.Color("boards.column.background")).Foreground(app.Color("boards.column.foreground")),
+		issueStyle:             app.DefaultStyle().Foreground(app.Color("boards.column.foreground")),
 		highlightIssueStyle:    app.DefaultStyle().Foreground(app.Color("boards.highlight.foreground")).Background(app.Color("boards.highlight.background")),
 		selectedIssueStyle:     app.DefaultStyle().Background(app.Color("boards.selection.background")).Foreground(app.Color("boards.selection.foreground")).Bold(true),
 		titleStyle:             app.DefaultStyle().Italic(true).Foreground(app.Color("boards.title.foreground")),

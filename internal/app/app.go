@@ -68,7 +68,7 @@ func GetApp() *App {
 }
 
 func DefaultStyle() tcell.Style {
-	return tcell.StyleDefault.Background(Color("default.background")).Foreground(Color("default.foreground"))
+	return tcell.StyleDefault.Foreground(Color("default.foreground"))
 }
 
 func initApp() {
