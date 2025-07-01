@@ -38,6 +38,7 @@ type boardView struct {
 	columnsX               map[int]int
 	issuesRow              map[string]int
 	issuesColumn           map[string]int
+	issuesColumnRowCount   map[int]int
 	issuesSummaries        map[string]string
 	goBackFn               func()
 	columns                []string
@@ -287,39 +288,55 @@ func (b *boardView) drawColumnsHeaders(screen tcell.Screen) {
 }
 
 func (b *boardView) moveCursorRight() {
-	if b.cursorX+1 >= len(b.statusesColumnsMap) {
+	if b.cursorX+1 >= len(b.columns) {
 		return
 	}
-	b.cursorX = app.MinInt(len(b.columns), b.cursorX+1)
-	b.cursorY = 0
+
 	if b.issueSelected {
+		b.cursorX = app.MinInt(len(b.columns)-1, b.cursorX+1)
 		b.moveIssue(b.highlightedIssue, 1)
 		return
 	}
-	// no issues in a column
-	if f := b.refreshHighlightedIssue(); !f {
-		b.moveCursorRight()
-		return
+	// no issues in a column; jump to next available
+	for column := b.cursorX + 1; column < len(b.columns); column++ {
+		rowCount, ok := b.issuesColumnRowCount[column]
+		if !ok {
+			continue
+		}
+		if rowCount > 0 {
+			b.cursorX = column
+			// ensure Y within bounds of column
+			b.cursorY = app.MinInt(b.cursorY, rowCount-1)
+			b.refreshHighlightedIssue()
+			return
+		}
 	}
-	b.scrollY = 0
 }
 
 func (b *boardView) moveCursorLeft() {
 	if b.cursorX-1 < 0 {
 		return
 	}
-	b.cursorX = app.MaxInt(0, b.cursorX-1)
-	b.cursorY = 0
+
 	if b.issueSelected {
+		b.cursorX = app.MaxInt(0, b.cursorX-1)
 		b.moveIssue(b.highlightedIssue, -1)
 		return
 	}
-	// no issues in a column
-	if f := b.refreshHighlightedIssue(); !f {
-		b.moveCursorLeft()
-		return
+	// no issues in a column; jump to next available
+	for column := b.cursorX - 1; column >= 0; column-- {
+		rowCount, ok := b.issuesColumnRowCount[column]
+		if !ok {
+			continue
+		}
+		if rowCount > 0 {
+			b.cursorX = column
+			// ensure Y within bounds of column
+			b.cursorY = app.MinInt(b.cursorY, rowCount-1)
+			b.refreshHighlightedIssue()
+			return
+		}
 	}
-	b.scrollY = 0
 }
 
 func (b *boardView) handleActions() {
@@ -391,12 +408,23 @@ func (b *boardView) pointCursorTo(issueId string) {
 
 func (b *boardView) refreshIssuesRows() {
 	rows := map[int]int{}
+	// reset maps as they may be stale after filter
+	b.issuesColumnRowCount = map[int]int{}
+	b.issuesRow = map[string]int{}
+	b.issuesColumn = map[string]int{}
+
 	for _, issue := range b.issues {
 		column := b.statusesColumnsMap[issue.Fields.Status.Id]
 		y := rows[column] + 1
 		b.issuesRow[issue.Id] = y
 		b.issuesColumn[issue.Id] = column
 		rows[column] = y
+
+		_, ok := b.issuesColumnRowCount[column]
+		if !ok {
+			b.issuesColumnRowCount[column] = 0
+		}
+		b.issuesColumnRowCount[column] = b.issuesColumnRowCount[column] + 1
 	}
 }
 
@@ -466,11 +494,15 @@ func (b *boardView) ensureHighlightInViewport() {
 	if b.highlightedIssue == nil {
 		return
 	}
-	if b.scrollX+(b.cursorX*b.columnSize)+b.columnSize > b.screenX { // highlighted issue out of screen
+	if b.cursorX == 0 {
+		b.scrollX = 0
+	} else if b.scrollX+(b.cursorX*b.columnSize)+b.columnSize > b.screenX { // highlighted issue out of screen
 		b.scrollX = app.MaxInt(0, (b.cursorX-2)*b.columnSize)
 	}
 	if b.scrollY+b.cursorY > b.scrollY { // highlighted issue out of screen
 		b.scrollY = app.MaxInt(0, b.cursorY-2)
+	} else if b.scrollY > b.cursorY {
+		b.scrollY = app.MinInt(0, b.cursorY)
 	}
 }
 
@@ -548,22 +580,14 @@ func (b *boardView) applyAssigneeFilter(user *jira.User) {
 			if assignee.DisplayName == "" {
 				b.issues = append(b.issues, issue)
 			}
-		} else {
-			if user.AccountId != "" {
-				if assignee.AccountId == user.AccountId {
-					b.issues = append(b.issues, issue)
-				}
-			} else if assignee.DisplayName == user.DisplayName {
-				b.issues = append(b.issues, issue)
-			}
+		} else if assignee.AccountId == user.AccountId {
+			b.issues = append(b.issues, issue)
+		} else if assignee.DisplayName == user.DisplayName {
+			b.issues = append(b.issues, issue)
 		}
 	}
 	b.refreshIssuesSummaries()
 	b.refreshIssuesRows()
-	b.cursorX = 0
-	b.cursorY = 0
-	b.scrollX = 0
-	b.scrollY = 0
 	b.setInitialCursorX()
 	b.refreshHighlightedIssue()
 }
@@ -575,10 +599,6 @@ func (b *boardView) clearAssigneeFilter() {
 
 	b.refreshIssuesSummaries()
 	b.refreshIssuesRows()
-	b.cursorX = 0
-	b.cursorY = 0
-	b.scrollX = 0
-	b.scrollY = 0
 	b.setInitialCursorX()
 	b.refreshHighlightedIssue()
 }
