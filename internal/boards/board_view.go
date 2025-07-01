@@ -254,10 +254,10 @@ func (b *boardView) HandleKeyEvent(ev *tcell.EventKey) {
 		}
 	}
 	if ev.Key() == tcell.KeyRight || ev.Rune() == vimRight {
-		b.moveCursorRight()
+		b.moveCursorRight(0)
 	}
 	if ev.Key() == tcell.KeyLeft || ev.Rune() == vimLeft {
-		b.moveCursorLeft()
+		b.moveCursorLeft(0)
 	}
 	if ev.Key() == tcell.KeyUp || ev.Rune() == vimUp {
 		b.cursorY = app.MaxInt(0, b.cursorY-1)
@@ -278,11 +278,21 @@ func (b *boardView) drawColumnsHeaders(screen tcell.Screen) {
 	}
 }
 
-func (b *boardView) moveCursorRight() {
-	if b.cursorX+1 >= len(b.statusesColumnsMap) {
+func (b *boardView) moveCursorRight(recursionDepth ...int) {
+	maxDepth := 20 // Prevent infinite recursion
+	depth := 0
+	if len(recursionDepth) > 0 {
+		depth = recursionDepth[0]
+	}
+	if depth > maxDepth {
+		debugLog("[DEBUG] moveCursorRight: max recursion depth reached, aborting to prevent freeze")
 		return
 	}
-	b.cursorX = app.MinInt(len(b.columns), b.cursorX+1)
+	if b.cursorX+1 >= len(b.columns) {
+		debugLog("[DEBUG] moveCursorRight: already at rightmost column, cannot move further right")
+		return
+	}
+	b.cursorX = app.MinInt(len(b.columns)-1, b.cursorX+1)
 	b.cursorY = 0
 	if b.issueSelected {
 		b.moveIssue(b.highlightedIssue, 1)
@@ -290,14 +300,24 @@ func (b *boardView) moveCursorRight() {
 	}
 	// no issues in a column
 	if f := b.refreshHighlightedIssue(); !f {
-		b.moveCursorRight()
+		b.moveCursorRight(depth + 1)
 		return
 	}
 	b.scrollY = 0
 }
 
-func (b *boardView) moveCursorLeft() {
+func (b *boardView) moveCursorLeft(recursionDepth ...int) {
+	maxDepth := 20 // Prevent infinite recursion
+	depth := 0
+	if len(recursionDepth) > 0 {
+		depth = recursionDepth[0]
+	}
+	if depth > maxDepth {
+		debugLog("[DEBUG] moveCursorLeft: max recursion depth reached, aborting to prevent freeze")
+		return
+	}
 	if b.cursorX-1 < 0 {
+		debugLog("[DEBUG] moveCursorLeft: already at leftmost column, cannot move further left")
 		return
 	}
 	b.cursorX = app.MaxInt(0, b.cursorX-1)
@@ -308,7 +328,7 @@ func (b *boardView) moveCursorLeft() {
 	}
 	// no issues in a column
 	if f := b.refreshHighlightedIssue(); !f {
-		b.moveCursorLeft()
+		b.moveCursorLeft(depth + 1)
 		return
 	}
 	b.scrollY = 0
@@ -458,7 +478,9 @@ func (b *boardView) ensureHighlightInViewport() {
 	if b.highlightedIssue == nil {
 		return
 	}
-	if b.scrollX+(b.cursorX*b.columnSize)+b.columnSize > b.screenX { // highlighted issue out of screen
+	if b.cursorX == 0 {
+		b.scrollX = 0
+	} else if b.scrollX+(b.cursorX*b.columnSize)+b.columnSize > b.screenX { // highlighted issue out of screen
 		b.scrollX = app.MaxInt(0, (b.cursorX-2)*b.columnSize)
 	}
 	if b.scrollY+b.cursorY > b.scrollY { // highlighted issue out of screen
