@@ -103,8 +103,8 @@ boards:
     background: "#232323"
     foreground: "#ffffff"
   highlight:
-    background: "#484848"
-    foreground: "#ffffff"
+    background: "#6666ff"
+    foreground: "#000000"
   selection:
     background: "#8B0000"
     foreground: "#ffffff"

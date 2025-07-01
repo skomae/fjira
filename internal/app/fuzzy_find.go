@@ -45,6 +45,12 @@ type FuzzyFindResult struct {
 	Match string
 }
 
+// Destroy implements the app.View interface. No cleanup needed.
+func (f *FuzzyFind) Destroy() {}
+
+// Init implements the app.View interface. No initialization needed.
+func (f *FuzzyFind) Init() {}
+
 const (
 	ResultsMarginBottom     = 3
 	WriteIndicator          = "> "

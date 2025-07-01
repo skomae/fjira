@@ -191,6 +191,17 @@ func NewOpenBarItem() *app.ActionBarItem {
 	}
 }
 
+func NewAssigneeFilterBarItem() *app.ActionBarItem {
+	return &app.ActionBarItem{
+		Id:         int(ActionSearchByAssignee),
+		Text1:      MessageByAssignee,
+		Text2:      "[F2]",
+		Text1Style: bottomBarItemDefaultStyle(),
+		Text2Style: bottomBarActionBarKeyBold(),
+		TriggerKey: tcell.KeyF2,
+	}
+}
+
 func NewSearchItem() *app.ActionBarItem {
 	return &app.ActionBarItem{
 		Id:          0,

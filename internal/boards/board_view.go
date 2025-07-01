@@ -2,13 +2,23 @@ package boards
 
 import (
 	"fmt"
+	"os"
 	"strings"
-
 	"github.com/gdamore/tcell/v2"
 	"github.com/mk-5/fjira/internal/app"
 	"github.com/mk-5/fjira/internal/jira"
 	"github.com/mk-5/fjira/internal/ui"
+	"github.com/mk-5/fjira/internal/users"
 )
+
+// debugLog writes debug messages to /tmp/fjira_debug.log
+func debugLog(msg string) {
+	f, err := os.OpenFile("/tmp/fjira_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err == nil {
+		defer f.Close()
+		f.WriteString(msg + "\n")
+	}
+}
 
 const (
 	topMargin           = 2 // 1 for navigation
@@ -30,6 +40,8 @@ type boardView struct {
 	filterJQL              string
 	project                *jira.Project
 	issues                 []jira.Issue
+	allIssues              []jira.Issue // stores all issues before filtering
+	assigneeFilter         *jira.User   // current assignee filter
 	statusesColumnsMap     map[string]int
 	columnStatusesMap      map[int][]string
 	columnsX               map[int]int
@@ -76,6 +88,7 @@ func NewBoardView(project *jira.Project, boardConfiguration *jira.BoardConfigura
 	bottomBar := ui.CreateBottomLeftBar()
 	bottomBar.AddItem(ui.CreateArrowsNavigateItem())
 	bottomBar.AddItem(ui.CreateSelectItem())
+	bottomBar.AddItem(ui.NewAssigneeFilterBarItem())
 	bottomBar.AddItem(ui.NewOpenBarItem())
 	bottomBar.AddItem(ui.NewCancelBarItem())
 	selectedIssueBottomBar := ui.CreateBottomLeftBar()
@@ -172,25 +185,33 @@ func (b *boardView) Resize(screenX, screenY int) {
 
 func (b *boardView) Init() {
 	app.GetApp().Loading(true)
-	b.issues = make([]jira.Issue, 0, maxIssuesNumber)
+	b.allIssues = make([]jira.Issue, 0, maxIssuesNumber)
 	page := int32(0)
-	for len(b.issues) < maxIssuesNumber {
+	for len(b.allIssues) < maxIssuesNumber {
 		iss, total, _, err := b.api.SearchJqlPageable(b.filterJQL, page, issueFetchBatchSize)
 		if err != nil {
 			app.GetApp().Loading(false)
 			app.Error(err.Error())
 			return
 		}
-		b.issues = append(b.issues, iss...)
-		if len(b.issues) >= int(total) {
+		b.allIssues = append(b.allIssues, iss...)
+		if len(b.allIssues) >= int(total) {
 			break
 		}
 		page++
 	}
-	b.refreshIssuesSummaries()
-	b.refreshIssuesRows()
-	b.setInitialCursorX()
-	b.refreshHighlightedIssue()
+
+	// Initialize issues: if a filter is active, reapply it
+	if b.assigneeFilter != nil {
+		b.applyAssigneeFilter(b.assigneeFilter)
+	} else {
+		b.issues = make([]jira.Issue, len(b.allIssues))
+		copy(b.issues, b.allIssues)
+		b.refreshIssuesSummaries()
+		b.refreshIssuesRows()
+		b.setInitialCursorX()
+		b.refreshHighlightedIssue()
+	}
 	app.GetApp().Loading(false)
 	go b.handleActions()
 }
@@ -224,6 +245,13 @@ func (b *boardView) HandleKeyEvent(ev *tcell.EventKey) {
 		b.bottomBar.HandleKeyEvent(ev)
 	} else {
 		b.selectedIssueBottomBar.HandleKeyEvent(ev)
+	}
+	if ev.Key() == tcell.KeyEnter {
+		// If not in edit/move mode, open issue detail view
+		if !b.issueSelected && b.highlightedIssue != nil && b.highlightedIssue.Id != "" {
+			app.GoTo("issue", b.highlightedIssue.Id, b.reopen, b.api)
+			return
+		}
 	}
 	if ev.Key() == tcell.KeyRight || ev.Rune() == vimRight {
 		b.moveCursorRight()
@@ -293,7 +321,12 @@ func (b *boardView) handleActions() {
 		case action := <-b.bottomBar.Action:
 			switch action {
 			case ui.ActionSelect:
-				b.issueSelected = true
+				if b.highlightedIssue != nil && b.highlightedIssue.Id != "" {
+					app.GoTo("issue", b.highlightedIssue.Id, b.reopen, b.api)
+				}
+			case ui.ActionSearchByAssignee:
+				b.runSelectAssigneeFilter()
+				return // Stop this action handler
 			case ui.ActionCancel:
 				if b.goBackFn != nil {
 					b.goBackFn()
@@ -439,4 +472,112 @@ func centerString(str string, width int) string {
 	}
 	spaces := int(float64(width-len(str)) / 2)
 	return strings.Repeat(" ", spaces) + str + strings.Repeat(" ", width-(spaces+len(str)))
+}
+
+func (b *boardView) runSelectAssigneeFilter() {
+	debugLog("[DEBUG] runSelectAssigneeFilter called")
+	app.GetApp().ClearNow()
+	app.GetApp().Loading(true)
+
+	// Get unique assignees from board issues
+	assignees := b.getBoardAssignees()
+	assignees = append(assignees, jira.User{DisplayName: ui.MessageAll})
+
+	assigneeStrings := users.FormatJiraUsers(assignees)
+	fuzzyFind := app.NewFuzzyFind(ui.MessageSelectUser, assigneeStrings)
+	app.GetApp().SetView(fuzzyFind)
+	app.GetApp().Loading(false)
+
+	// Block here and wait for completion (same pattern as issues view)
+	if user := <-fuzzyFind.Complete; true {
+		app.GetApp().ClearNow()
+		if user.Index >= 0 && len(assignees) > 0 {
+			selectedUser := &assignees[user.Index]
+			if selectedUser.DisplayName == ui.MessageAll {
+				b.clearAssigneeFilter()
+			} else {
+				b.applyAssigneeFilter(selectedUser)
+			}
+		}
+		// Return to board view and restart action handler
+		b.reopen()
+		go b.handleActions()
+	}
+}
+
+func (b *boardView) getBoardAssignees() []jira.User {
+	assigneeNames := make(map[string]struct{})
+	hasUnassigned := false
+	for _, issue := range b.allIssues {
+		assignee := issue.Fields.Assignee
+		if assignee.DisplayName != "" {
+			assigneeNames[assignee.DisplayName] = struct{}{}
+		} else {
+			hasUnassigned = true
+		}
+	}
+	filtered := make([]jira.User, 0, len(assigneeNames)+1)
+	for name := range assigneeNames {
+		filtered = append(filtered, jira.User{
+			DisplayName: name,
+			Name:        name,
+			Key:         name,
+		})
+	}
+	if hasUnassigned {
+		filtered = append(filtered, jira.User{DisplayName: ui.MessageUnassigned})
+	}
+	return filtered
+}
+
+func (b *boardView) applyAssigneeFilter(user *jira.User) {
+	debugLog(fmt.Sprintf("[DEBUG] applyAssigneeFilter: user=%+v", user))
+	b.assigneeFilter = user
+	b.issues = make([]jira.Issue, 0)
+
+	for _, issue := range b.allIssues {
+		assignee := issue.Fields.Assignee
+		debugLog(fmt.Sprintf("[DEBUG] Comparing: user.DisplayName=%q assignee.DisplayName=%q user.AccountId=%q assignee.AccountId=%q", user.DisplayName, assignee.DisplayName, user.AccountId, assignee.AccountId))
+		if user.DisplayName == ui.MessageUnassigned {
+			if assignee.DisplayName == "" {
+				b.issues = append(b.issues, issue)
+				debugLog(fmt.Sprintf("[DEBUG] Issue %s: matched UNASSIGNED", issue.Key))
+			}
+		} else {
+			if user.AccountId != "" {
+				if assignee.AccountId == user.AccountId {
+					b.issues = append(b.issues, issue)
+					debugLog(fmt.Sprintf("[DEBUG] Issue %s: matched by AccountId", issue.Key))
+				}
+			} else if assignee.DisplayName == user.DisplayName {
+				b.issues = append(b.issues, issue)
+				debugLog(fmt.Sprintf("[DEBUG] Issue %s: matched by DisplayName", issue.Key))
+			}
+		}
+	}
+	debugLog(fmt.Sprintf("[DEBUG] Filtered issues count: %d", len(b.issues)))
+	b.refreshIssuesSummaries()
+	b.refreshIssuesRows()
+	b.cursorX = 0
+	b.cursorY = 0
+	b.scrollX = 0
+	b.scrollY = 0
+	b.setInitialCursorX()
+	b.refreshHighlightedIssue()
+}
+
+
+func (b *boardView) clearAssigneeFilter() {
+	b.assigneeFilter = nil
+	b.issues = make([]jira.Issue, len(b.allIssues))
+	copy(b.issues, b.allIssues)
+
+	b.refreshIssuesSummaries()
+	b.refreshIssuesRows()
+	b.cursorX = 0
+	b.cursorY = 0
+	b.scrollX = 0
+	b.scrollY = 0
+	b.setInitialCursorX()
+	b.refreshHighlightedIssue()
 }
