@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/mk-5/fjira/internal/app"
 	"github.com/mk-5/fjira/internal/jira"
 	"github.com/mk-5/fjira/internal/ui"
 	"github.com/mk-5/fjira/internal/users"
 )
-
 
 // debugLog writes debug messages to /tmp/fjira_debug.log
 func debugLog(msg string) {
@@ -368,7 +368,6 @@ func (b *boardView) handleActions() {
 			case ui.ActionOpen:
 				app.GoTo("issue", b.highlightedIssue.Id, b.reopen, b.api)
 			}
-		default: //nolint
 		}
 	}
 }
@@ -558,23 +557,23 @@ func (b *boardView) getBoardAssignees() []jira.User {
 }
 
 func (b *boardView) applyAssigneeFilter(user *jira.User) {
-	
+
 	b.assigneeFilter = user
 	b.issues = make([]jira.Issue, 0)
 
 	for _, issue := range b.allIssues {
 		assignee := issue.Fields.Assignee
-		
+
 		if user.DisplayName == ui.MessageUnassigned {
 			if assignee.DisplayName == "" {
 				b.issues = append(b.issues, issue)
-				
+
 			}
 		} else {
 			if user.AccountId != "" {
 				if assignee.AccountId == user.AccountId {
 					b.issues = append(b.issues, issue)
-					
+
 				}
 			} else if assignee.DisplayName == user.DisplayName {
 				b.issues = append(b.issues, issue)
@@ -590,7 +589,6 @@ func (b *boardView) applyAssigneeFilter(user *jira.User) {
 	b.setInitialCursorX()
 	b.refreshHighlightedIssue()
 }
-
 
 func (b *boardView) clearAssigneeFilter() {
 	b.assigneeFilter = nil
