@@ -25,6 +25,7 @@ type Api interface {
 	DoComment(issueId string, commentBody string) error
 	FindBoards(projectKeyOrId string) ([]BoardItem, error)
 	GetBoardConfiguration(boardId int) (*BoardConfiguration, error)
+	GetBoardProjects(boardId int) ([]Project, error)
 	GetFilter(filterId string) (*Filter, error)
 	GetMyFilters() ([]Filter, error)
 	Close()

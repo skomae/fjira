@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -11,6 +12,26 @@ import (
 	"github.com/gdamore/tcell/v2"
 	_ "github.com/gdamore/tcell/v2/encoding"
 )
+
+var lastViewedBoardID int
+
+func SetLastViewedBoardID(id int) {
+	lastViewedBoardID = id
+
+}
+
+// debugLog writes debug messages to fjira_debug.log in the current working directory
+func debugLog(msg string) {
+	f, err := os.OpenFile("fjira_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err == nil {
+		defer f.Close()
+		f.WriteString(msg + "\n")
+	}
+}
+
+// DebugLog is a public alias for debugLog for use in other packages
+func DebugLog(msg string) {
+}
 
 type App struct {
 	ScreenX      int
@@ -171,6 +192,10 @@ func (a *App) Close() {
 	a.screen.Show()
 	a.screen.Fini()
 	close(a.keyEvent)
+
+	if lastViewedBoardID != 0 {
+		fmt.Fprintf(os.Stdout, "Last viewed board id: %d\n", lastViewedBoardID)
+	}
 }
 
 func (a *App) Loading(flag bool) {

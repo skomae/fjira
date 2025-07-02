@@ -11,6 +11,7 @@ import (
 	"github.com/mk-5/fjira/internal/users"
 )
 
+
 // debugLog writes debug messages to /tmp/fjira_debug.log
 func debugLog(msg string) {
 	f, err := os.OpenFile("/tmp/fjira_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -67,6 +68,10 @@ type boardView struct {
 }
 
 func NewBoardView(project *jira.Project, boardConfiguration *jira.BoardConfiguration, filterJQL string, api jira.Api) app.View {
+	if boardConfiguration != nil {
+		app.SetLastViewedBoardID(boardConfiguration.Id)
+	}
+
 	col := 0
 	statusesColumnsMap := map[string]int{}
 	columnStatusesMap := map[int][]string{}
@@ -285,11 +290,11 @@ func (b *boardView) moveCursorRight(recursionDepth ...int) {
 		depth = recursionDepth[0]
 	}
 	if depth > maxDepth {
-		debugLog("[DEBUG] moveCursorRight: max recursion depth reached, aborting to prevent freeze")
+
 		return
 	}
 	if b.cursorX+1 >= len(b.columns) {
-		debugLog("[DEBUG] moveCursorRight: already at rightmost column, cannot move further right")
+
 		return
 	}
 	b.cursorX = app.MinInt(len(b.columns)-1, b.cursorX+1)
@@ -313,11 +318,11 @@ func (b *boardView) moveCursorLeft(recursionDepth ...int) {
 		depth = recursionDepth[0]
 	}
 	if depth > maxDepth {
-		debugLog("[DEBUG] moveCursorLeft: max recursion depth reached, aborting to prevent freeze")
+
 		return
 	}
 	if b.cursorX-1 < 0 {
-		debugLog("[DEBUG] moveCursorLeft: already at leftmost column, cannot move further left")
+
 		return
 	}
 	b.cursorX = app.MaxInt(0, b.cursorX-1)
@@ -497,7 +502,7 @@ func centerString(str string, width int) string {
 }
 
 func (b *boardView) runSelectAssigneeFilter() {
-	debugLog("[DEBUG] runSelectAssigneeFilter called")
+
 	app.GetApp().ClearNow()
 	app.GetApp().Loading(true)
 
@@ -553,31 +558,29 @@ func (b *boardView) getBoardAssignees() []jira.User {
 }
 
 func (b *boardView) applyAssigneeFilter(user *jira.User) {
-	debugLog(fmt.Sprintf("[DEBUG] applyAssigneeFilter: user=%+v", user))
+	
 	b.assigneeFilter = user
 	b.issues = make([]jira.Issue, 0)
 
 	for _, issue := range b.allIssues {
 		assignee := issue.Fields.Assignee
-		debugLog(fmt.Sprintf("[DEBUG] Comparing: user.DisplayName=%q assignee.DisplayName=%q user.AccountId=%q assignee.AccountId=%q", user.DisplayName, assignee.DisplayName, user.AccountId, assignee.AccountId))
+		
 		if user.DisplayName == ui.MessageUnassigned {
 			if assignee.DisplayName == "" {
 				b.issues = append(b.issues, issue)
-				debugLog(fmt.Sprintf("[DEBUG] Issue %s: matched UNASSIGNED", issue.Key))
+				
 			}
 		} else {
 			if user.AccountId != "" {
 				if assignee.AccountId == user.AccountId {
 					b.issues = append(b.issues, issue)
-					debugLog(fmt.Sprintf("[DEBUG] Issue %s: matched by AccountId", issue.Key))
+					
 				}
 			} else if assignee.DisplayName == user.DisplayName {
 				b.issues = append(b.issues, issue)
-				debugLog(fmt.Sprintf("[DEBUG] Issue %s: matched by DisplayName", issue.Key))
 			}
 		}
 	}
-	debugLog(fmt.Sprintf("[DEBUG] Filtered issues count: %d", len(b.issues)))
 	b.refreshIssuesSummaries()
 	b.refreshIssuesRows()
 	b.cursorX = 0

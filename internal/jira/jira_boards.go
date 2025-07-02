@@ -102,3 +102,20 @@ func (api *httpApi) GetBoardConfiguration(boardId int) (*BoardConfiguration, err
 	}
 	return &result, nil
 }
+
+// GetBoardProjects fetches the projects associated with a board by its ID.
+func (api *httpApi) GetBoardProjects(boardId int) ([]Project, error) {
+	url := fmt.Sprintf("/rest/agile/1.0/board/%d/project", boardId)
+	resultBytes, err := api.jiraRequest("GET", url, &nilParams{}, nil)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Values []Project `json:"values"`
+	}
+	err = json.Unmarshal(resultBytes, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Values, nil
+}
