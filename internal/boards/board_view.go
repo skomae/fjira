@@ -204,8 +204,12 @@ func (b *boardView) Init() {
 	app.GetApp().Loading(true)
 	b.allIssues = make([]jira.Issue, 0, maxIssuesNumber)
 	page := int32(0)
+
+	// Add current sprint filter to improve performance
+	currentSprintJQL := "sprint in openSprints()"
+
 	for len(b.allIssues) < maxIssuesNumber {
-		iss, total, _, err := b.api.SearchJqlPageable(b.filterJQL, page, issueFetchBatchSize)
+		iss, total, _, err := b.api.GetBoardIssues(b.boardConfiguration.Id, page, issueFetchBatchSize, currentSprintJQL)
 		if err != nil {
 			app.GetApp().Loading(false)
 			app.Error(err.Error())
