@@ -22,7 +22,7 @@ func TestNewBoardView(t *testing.T) {
 		name string
 		args args
 	}{
-		{"should create a new board view", args{boardConfiguration: &jira.BoardConfiguration{}, project: &jira.Project{}}},
+		{"should create a new board view", args{boardConfiguration: &jira.BoardConfiguration{Id: 1}, project: &jira.Project{}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -39,7 +39,7 @@ func Test_boardView_Destroy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := NewBoardView(&jira.Project{}, &jira.BoardConfiguration{}, "", nil)
+			b := NewBoardView(&jira.Project{}, &jira.BoardConfiguration{Id: 1}, "", nil)
 			b.Destroy()
 		})
 	}
@@ -231,7 +231,7 @@ func Test_boardView_HandleKeyEvent(t *testing.T) {
 `
 				w.Write([]byte(body)) //nolint:errcheck
 			})
-			view := NewBoardView(&jira.Project{Id: "1"}, &jira.BoardConfiguration{}, "", api).(*boardView)
+			view := NewBoardView(&jira.Project{Id: "1"}, &jira.BoardConfiguration{Id: 1}, "", api).(*boardView)
 			view.columnStatusesMap[0] = []string{"0"}
 			view.columnStatusesMap[1] = []string{"1"}
 			view.columnStatusesMap[2] = []string{"2"}
@@ -321,7 +321,7 @@ func Test_boardView_Init(t *testing.T) {
 `
 				_, _ = w.Write([]byte(body)) //nolint:errcheck
 			})
-			view := NewBoardView(&jira.Project{Id: "1"}, &jira.BoardConfiguration{}, "", api).(*boardView)
+			view := NewBoardView(&jira.Project{Id: "1"}, &jira.BoardConfiguration{Id: 1}, "", api).(*boardView)
 
 			// when
 			view.Init()
@@ -425,6 +425,7 @@ func Test_boardView_assigneeFiltering(t *testing.T) {
 			})
 
 			boardConfig := &jira.BoardConfiguration{
+				Id: 1,
 				ColumnConfig: struct {
 					Columns []struct {
 						Name     string `json:"name"`

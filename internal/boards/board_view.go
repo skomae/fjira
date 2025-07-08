@@ -12,9 +12,9 @@ import (
 	"github.com/mk-5/fjira/internal/users"
 )
 
-// debugLog writes debug messages to /tmp/fjira_debug.log
+// debugLog writes debug messages to fjira_debug.log
 func debugLog(msg string) {
-	f, err := os.OpenFile("/tmp/fjira_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile("fjira_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err == nil {
 		defer f.Close()
 		f.WriteString(msg + "\n")
@@ -192,8 +192,13 @@ func (b *boardView) Init() {
 	app.GetApp().Loading(true)
 	b.allIssues = make([]jira.Issue, 0, maxIssuesNumber)
 	page := int32(0)
+
+	// Add current sprint filter to improve performance
+	currentSprintJQL := "sprint in openSprints()"
+	debugLog(fmt.Sprintf("DEBUG: Using GetBoardIssues for board ID: %d with JQL: %s", b.boardConfiguration.Id, currentSprintJQL))
+
 	for len(b.allIssues) < maxIssuesNumber {
-		iss, total, _, err := b.api.SearchJqlPageable(b.filterJQL, page, issueFetchBatchSize)
+		iss, total, _, err := b.api.GetBoardIssues(b.boardConfiguration.Id, page, issueFetchBatchSize, currentSprintJQL)
 		if err != nil {
 			app.GetApp().Loading(false)
 			app.Error(err.Error())
@@ -205,6 +210,8 @@ func (b *boardView) Init() {
 		}
 		page++
 	}
+
+	debugLog(fmt.Sprintf("DEBUG: Fetched %d issues total using GetBoardIssues with current sprint filter", len(b.allIssues)))
 
 	// Initialize issues: if a filter is active, reapply it
 	if b.assigneeFilter != nil {

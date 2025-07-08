@@ -57,11 +57,19 @@ type BoardConfiguration struct {
 const (
 	FindAllBoardsUrl          = "/rest/agile/1.0/board"
 	FindBoardConfigurationUrl = "/rest/agile/1.0/board/%d/configuration"
+	GetBoardIssuesUrl         = "/rest/agile/1.0/board/%d/issue"
 )
 
 type findBoardsQueryParams struct {
 	ProjectKeyOrId string `url:"projectKeyOrId"`
 	StartAt        int    `url:"startAt"`
+}
+
+type getBoardIssuesQueryParams struct {
+	StartAt    int32  `url:"startAt"`
+	MaxResults int32  `url:"maxResults"`
+	Fields     string `url:"fields"`
+	JQL        string `url:"jql,omitempty"`
 }
 
 func (api *httpApi) FindBoards(projectKeyOrId string) ([]BoardItem, error) {
@@ -118,4 +126,33 @@ func (api *httpApi) GetBoardProjects(boardId int) ([]Project, error) {
 		return nil, err
 	}
 	return resp.Values, nil
+}
+
+// GetBoardIssues fetches issues for a board using the Agile API with optional JQL filtering
+func (api *httpApi) GetBoardIssues(boardId int, page int32, pageSize int32, jql string) ([]Issue, int32, int32, error) {
+	params := &getBoardIssuesQueryParams{
+		StartAt:    page * pageSize,
+		MaxResults: pageSize,
+		Fields:     "id,key,summary,issuetype,project,reporter,status,assignee",
+		JQL:        jql,
+	}
+
+	resultBytes, err := api.jiraRequest("GET", fmt.Sprintf(GetBoardIssuesUrl, boardId), params, nil)
+	if err != nil {
+		return nil, -1, pageSize, err
+	}
+
+	var result struct {
+		Issues     []Issue `json:"issues"`
+		Total      int32   `json:"total"`
+		MaxResults int32   `json:"maxResults"`
+		StartAt    int32   `json:"startAt"`
+	}
+
+	err = json.Unmarshal(resultBytes, &result)
+	if err != nil {
+		return nil, -1, pageSize, err
+	}
+
+	return result.Issues, result.Total, result.MaxResults, nil
 }

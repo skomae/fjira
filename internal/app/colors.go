@@ -2,28 +2,39 @@ package app
 
 import (
 	"fmt"
+	"os"
+	"sync"
+
 	"github.com/gdamore/tcell/v2"
 	os2 "github.com/mk-5/fjira/internal/os"
 	"gopkg.in/yaml.v3"
-	"os"
 )
 
 var (
-	schemeMap map[string]interface{}
-	colorsMap = map[string]tcell.Color{}
+	schemeMap   map[string]interface{}
+	colorsMap   = map[string]tcell.Color{}
+	colorsMutex sync.RWMutex
 )
 
 func Color(c string) tcell.Color {
+	colorsMutex.RLock()
 	if len(colorsMap) == 0 {
+		colorsMutex.RUnlock()
 		MustLoadColorScheme()
+		colorsMutex.RLock()
 	}
 	if color, ok := colorsMap[c]; ok {
+		colorsMutex.RUnlock()
 		return color
 	}
+	colorsMutex.RUnlock()
 	panic("unknown color " + c)
 }
 
 func MustLoadColorScheme() map[string]interface{} {
+	colorsMutex.Lock()
+	defer colorsMutex.Unlock()
+
 	d := os2.MustGetFjiraHomeDir()
 	p := fmt.Sprintf("%s/colors.yml", d)
 	b, err := os.ReadFile(p)
