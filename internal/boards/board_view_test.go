@@ -192,7 +192,7 @@ func Test_boardView_HandleKeyEvent(t *testing.T) {
 			tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone),
 			tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone),
 			tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone),
-		}}, 1, 1},
+		}}, 1, 0}, // Expected: cursorX=1, cursorY=0 (first issue in column 1)
 		{"should handle key events and move cursor, and move issue using VIM keys", args{ev: []*tcell.EventKey{
 			tcell.NewEventKey(0, 'l', tcell.ModNone),
 			tcell.NewEventKey(0, 'l', tcell.ModNone),
@@ -201,7 +201,7 @@ func Test_boardView_HandleKeyEvent(t *testing.T) {
 			tcell.NewEventKey(0, 'j', tcell.ModNone),
 			tcell.NewEventKey(0, 'j', tcell.ModNone),
 			tcell.NewEventKey(0, 'k', tcell.ModNone),
-		}}, 1, 1},
+		}}, 1, 0}, // Expected: cursorX=1, cursorY=0 (first issue in column 1)
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

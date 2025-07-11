@@ -193,9 +193,8 @@ func (b *boardView) Init() {
 	b.allIssues = make([]jira.Issue, 0, maxIssuesNumber)
 	page := int32(0)
 
-	// Add current sprint filter to improve performance
+	// Add current sprint filter to improve performance / most accurate view
 	currentSprintJQL := "sprint in openSprints()"
-	debugLog(fmt.Sprintf("DEBUG: Using GetBoardIssues for board ID: %d with JQL: %s", b.boardConfiguration.Id, currentSprintJQL))
 
 	for len(b.allIssues) < maxIssuesNumber {
 		iss, total, _, err := b.api.GetBoardIssues(b.boardConfiguration.Id, page, issueFetchBatchSize, currentSprintJQL)
@@ -210,8 +209,6 @@ func (b *boardView) Init() {
 		}
 		page++
 	}
-
-	debugLog(fmt.Sprintf("DEBUG: Fetched %d issues total using GetBoardIssues with current sprint filter", len(b.allIssues)))
 
 	// Initialize issues: if a filter is active, reapply it
 	if b.assigneeFilter != nil {
@@ -272,14 +269,96 @@ func (b *boardView) HandleKeyEvent(ev *tcell.EventKey) {
 		b.moveCursorLeft(0)
 	}
 	if ev.Key() == tcell.KeyUp || ev.Rune() == vimUp {
-		b.cursorY = app.MaxInt(0, b.cursorY-1)
-		b.refreshHighlightedIssue()
+		// Only allow vertical movement if current column has visible issues
+		if b.columnHasVisibleIssues(b.cursorX) {
+			newY := b.findNextIssuePosition(-1)
+			if newY != b.cursorY {
+				b.cursorY = newY
+				b.refreshHighlightedIssue()
+			}
+		}
 	}
 	if ev.Key() == tcell.KeyDown || ev.Rune() == vimDown {
-		// TODO - get number of issues in column
-		b.cursorY = app.MinInt(1000, b.cursorY+1)
-		b.refreshHighlightedIssue()
+		// Only allow vertical movement if current column has visible issues
+		if b.columnHasVisibleIssues(b.cursorX) {
+			newY := b.findNextIssuePosition(1)
+			if newY != b.cursorY {
+				b.cursorY = newY
+				b.refreshHighlightedIssue()
+			}
+		}
 	}
+}
+
+// columnHasVisibleIssues checks if a column has any visible issues
+func (b *boardView) columnHasVisibleIssues(column int) bool {
+	for _, issue := range b.issues {
+		if b.issuesColumn[issue.Id] == column {
+			return true
+		}
+	}
+	return false
+}
+
+// getIssuePositionsInColumn returns sorted list of Y positions that have issues in the given column
+func (b *boardView) getIssuePositionsInColumn(column int) []int {
+	positions := []int{}
+	for _, issue := range b.issues {
+		if b.issuesColumn[issue.Id] == column {
+			y := b.issuesRow[issue.Id] - 1 // Convert to cursor Y coordinate
+			positions = append(positions, y)
+		}
+	}
+
+	// Sort positions
+	for i := 0; i < len(positions); i++ {
+		for j := i + 1; j < len(positions); j++ {
+			if positions[i] > positions[j] {
+				positions[i], positions[j] = positions[j], positions[i]
+			}
+		}
+	}
+
+	return positions
+}
+
+// findNextIssuePosition finds the next valid issue position in the current column
+func (b *boardView) findNextIssuePosition(direction int) int {
+	positions := b.getIssuePositionsInColumn(b.cursorX)
+	if len(positions) == 0 {
+		return b.cursorY
+	}
+
+	if direction > 0 { // Moving down
+		for _, pos := range positions {
+			if pos > b.cursorY {
+				return pos
+			}
+		}
+		return positions[len(positions)-1] // Stay at last position
+	} else { // Moving up
+		for i := len(positions) - 1; i >= 0; i-- {
+			if positions[i] < b.cursorY {
+				return positions[i]
+			}
+		}
+		return positions[0] // Stay at first position
+	}
+}
+
+// findNextValidColumn searches for the next column with visible issues in the given direction
+func (b *boardView) findNextValidColumn(startColumn int, direction int) int {
+	currentColumn := startColumn
+	for i := 0; i < len(b.columns); i++ {
+		currentColumn += direction
+		if currentColumn < 0 || currentColumn >= len(b.columns) {
+			break
+		}
+		if b.columnHasVisibleIssues(currentColumn) {
+			return currentColumn
+		}
+	}
+	return -1 // No valid column found
 }
 
 func (b *boardView) drawColumnsHeaders(screen tcell.Screen) {
@@ -291,56 +370,60 @@ func (b *boardView) drawColumnsHeaders(screen tcell.Screen) {
 }
 
 func (b *boardView) moveCursorRight(recursionDepth ...int) {
-	maxDepth := 20 // Prevent infinite recursion
-	depth := 0
-	if len(recursionDepth) > 0 {
-		depth = recursionDepth[0]
-	}
-	if depth > maxDepth {
-
+	// Find the next valid column to the right
+	nextColumn := b.findNextValidColumn(b.cursorX, 1)
+	if nextColumn == -1 {
+		// No valid column found to the right
 		return
 	}
-	if b.cursorX+1 >= len(b.columns) {
 
-		return
+	b.cursorX = nextColumn
+	// Find first issue position in this column
+	positions := b.getIssuePositionsInColumn(nextColumn)
+	if len(positions) > 0 {
+		b.cursorY = positions[0]
+	} else {
+		b.cursorY = 0
 	}
-	b.cursorX = app.MinInt(len(b.columns)-1, b.cursorX+1)
-	b.cursorY = 0
+
 	if b.issueSelected {
 		b.moveIssue(b.highlightedIssue, 1)
 		return
 	}
-	// no issues in a column
-	if f := b.refreshHighlightedIssue(); !f {
-		b.moveCursorRight(depth + 1)
+
+	// Try to highlight the first issue in this column
+	if !b.refreshHighlightedIssue() {
+		// This shouldn't happen since we checked the column has issues
 		return
 	}
 	b.scrollY = 0
 }
 
 func (b *boardView) moveCursorLeft(recursionDepth ...int) {
-	maxDepth := 20 // Prevent infinite recursion
-	depth := 0
-	if len(recursionDepth) > 0 {
-		depth = recursionDepth[0]
-	}
-	if depth > maxDepth {
-
+	// Find the next valid column to the left
+	nextColumn := b.findNextValidColumn(b.cursorX, -1)
+	if nextColumn == -1 {
+		// No valid column found to the left
 		return
 	}
-	if b.cursorX-1 < 0 {
 
-		return
+	b.cursorX = nextColumn
+	// Find first issue position in this column
+	positions := b.getIssuePositionsInColumn(nextColumn)
+	if len(positions) > 0 {
+		b.cursorY = positions[0]
+	} else {
+		b.cursorY = 0
 	}
-	b.cursorX = app.MaxInt(0, b.cursorX-1)
-	b.cursorY = 0
+
 	if b.issueSelected {
 		b.moveIssue(b.highlightedIssue, -1)
 		return
 	}
-	// no issues in a column
-	if f := b.refreshHighlightedIssue(); !f {
-		b.moveCursorLeft(depth + 1)
+
+	// Try to highlight the first issue in this column
+	if !b.refreshHighlightedIssue() {
+		// This shouldn't happen since we checked the column has issues
 		return
 	}
 	b.scrollY = 0
@@ -404,6 +487,7 @@ func (b *boardView) refreshHighlightedIssue() bool {
 			}
 		}
 	}
+
 	return false
 }
 
@@ -413,6 +497,10 @@ func (b *boardView) pointCursorTo(issueId string) {
 }
 
 func (b *boardView) refreshIssuesRows() {
+	// Clear existing position mappings to ensure filtered-out issues are removed
+	b.issuesRow = map[string]int{}
+	b.issuesColumn = map[string]int{}
+
 	rows := map[int]int{}
 	for _, issue := range b.issues {
 		column := b.statusesColumnsMap[issue.Fields.Status.Id]
@@ -424,6 +512,9 @@ func (b *boardView) refreshIssuesRows() {
 }
 
 func (b *boardView) refreshIssuesSummaries() {
+	// Clear existing summaries to ensure filtered-out issues are removed
+	b.issuesSummaries = map[string]string{}
+
 	for _, issue := range b.issues {
 		b.issuesSummaries[issue.Id] = fmt.Sprintf("%s %s", issue.Key, issue.Fields.Summary)
 	}
@@ -433,11 +524,23 @@ func (b *boardView) setInitialCursorX() {
 	if len(b.issuesColumn) == 0 {
 		return
 	}
-	b.cursorX = len(b.columnsX)
+
+	// Find the leftmost column that has visible issues
+	leftmostColumn := len(b.columnsX)
 	for _, v := range b.issuesColumn {
-		if v < b.cursorX {
-			b.cursorX = v
+		if v < leftmostColumn {
+			leftmostColumn = v
 		}
+	}
+
+	b.cursorX = leftmostColumn
+
+	// Set cursor to the first issue position in this column
+	positions := b.getIssuePositionsInColumn(leftmostColumn)
+	if len(positions) > 0 {
+		b.cursorY = positions[0]
+	} else {
+		b.cursorY = 0
 	}
 }
 
