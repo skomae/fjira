@@ -19,10 +19,12 @@ const (
 	ActionComment
 	ActionCancel
 	ActionOpen
+	ActionEdit
 	ActionYes
 	ActionAddLabel
 	ActionSelect
 	ActionUnselect
+	ActionRefresh
 )
 
 type NavItemConfig struct {
