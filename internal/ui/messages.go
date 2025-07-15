@@ -59,6 +59,7 @@ const (
 	MessageByAssignee                = "by assignee "
 	MessageByLabel                   = "by label "
 	MessageExcludeStatus             = "exclude status "
+	MessageClearExcludedStatuses     = "clear excluded "
 	MessageBoards                    = "boards"
 	MessageAssignUser                = "Assign user "
 	MessageComment                   = "Comment "

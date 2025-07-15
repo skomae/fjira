@@ -10,12 +10,12 @@ import (
 
 func Test_buildSearchIssuesJql(t *testing.T) {
 	type args struct {
-		project       *jira.Project
-		query         string
-		status        *jira.IssueStatus
-		user          *jira.User
-		label         string
-		excludeStatus *jira.IssueStatus
+		project          *jira.Project
+		query            string
+		status           *jira.IssueStatus
+		user             *jira.User
+		label            string
+		excludedStatuses []*jira.IssueStatus
 	}
 	tests := []struct {
 		name string
@@ -35,11 +35,12 @@ func Test_buildSearchIssuesJql(t *testing.T) {
 		},
 		{"should create valid jql", args{project: &jira.Project{Id: "123"}, label: "test"}, "project=123 AND labels=test ORDER BY status"},
 		{"should create valid jql", args{project: &jira.Project{Id: "123"}, user: &jira.User{Name: "bob"}}, "project=123 AND assignee=bob ORDER BY status"},
-		{"should create valid jql with exclude status", args{project: &jira.Project{Id: "123"}, excludeStatus: &jira.IssueStatus{Id: "done"}}, "project=123 AND status!=done ORDER BY status"},
+		{"should create valid jql with exclude status", args{project: &jira.Project{Id: "123"}, excludedStatuses: []*jira.IssueStatus{{Id: "done"}}}, "project=123 AND status!=done ORDER BY status"},
+		{"should create valid jql with multiple excluded statuses", args{project: &jira.Project{Id: "123"}, excludedStatuses: []*jira.IssueStatus{{Id: "done"}, {Id: "closed"}}}, "project=123 AND status!=done AND status!=closed ORDER BY status"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, BuildSearchIssuesJql(tt.args.project, tt.args.query, tt.args.status, tt.args.user, tt.args.label, tt.args.excludeStatus), "BuildSearchIssuesJql(%v, %v, %v, %v, %v, %v)", tt.args.project, tt.args.query, tt.args.status, tt.args.user, tt.args.label, tt.args.excludeStatus)
+			assert.Equalf(t, tt.want, BuildSearchIssuesJql(tt.args.project, tt.args.query, tt.args.status, tt.args.user, tt.args.label, tt.args.excludedStatuses), "BuildSearchIssuesJql(%v, %v, %v, %v, %v, %v)", tt.args.project, tt.args.query, tt.args.status, tt.args.user, tt.args.label, tt.args.excludedStatuses)
 		})
 	}
 }

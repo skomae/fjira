@@ -26,6 +26,7 @@ const (
 	ActionUnselect
 	ActionRefresh
 	ActionExcludeStatus
+	ActionClearExcludedStatuses
 )
 
 type NavItemConfig struct {

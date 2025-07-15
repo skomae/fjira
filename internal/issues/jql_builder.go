@@ -8,7 +8,7 @@ import (
 	"github.com/mk-5/fjira/internal/ui"
 )
 
-func BuildSearchIssuesJql(project *jira.Project, query string, status *jira.IssueStatus, user *jira.User, label string, excludeStatus *jira.IssueStatus) string {
+func BuildSearchIssuesJql(project *jira.Project, query string, status *jira.IssueStatus, user *jira.User, label string, excludedStatuses []*jira.IssueStatus) string {
 	jql := ""
 	if project != nil && project.Id != ui.MessageAll {
 		jql = jql + fmt.Sprintf("project=%s", project.Id)
@@ -32,8 +32,10 @@ func BuildSearchIssuesJql(project *jira.Project, query string, status *jira.Issu
 	if label != "" && label != ui.MessageAll {
 		jql = jql + fmt.Sprintf(" AND labels=%s", label)
 	}
-	if excludeStatus != nil && excludeStatus.Name != ui.MessageAll {
-		jql = jql + fmt.Sprintf(" AND status!=%s", excludeStatus.Id)
+	for _, excludedStatus := range excludedStatuses {
+		if excludedStatus != nil && excludedStatus.Name != ui.MessageAll {
+			jql = jql + fmt.Sprintf(" AND status!=%s", excludedStatus.Id)
+		}
 	}
 	if query != "" && issueRegExp.MatchString(query) {
 		jql = jql + fmt.Sprintf(" OR issuekey=\"%s\"", query)

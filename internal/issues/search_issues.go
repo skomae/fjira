@@ -15,27 +15,28 @@ import (
 )
 
 type searchIssuesView struct {
-	api          jira.Api
-	bottomBar    *app.ActionBar
-	topBar       *app.ActionBar
-	fuzzyFind    *app.FuzzyFind
-	project      *jira.Project
-	goBackFn     func()
-	currentQuery string
-	customJql    string
-	screenX      int
-	screenY      int
-	issues       []jira.Issue
-	labels       []string
-	dirty        bool // refetch jira issues from api if dirty
+	api                jira.Api
+	bottomBar          *app.ActionBar
+	topBar             *app.ActionBar
+	fuzzyFind          *app.FuzzyFind
+	project            *jira.Project
+	goBackFn           func()
+	currentQuery       string
+	customJql          string
+	screenX            int
+	screenY            int
+	issues             []jira.Issue
+	labels             []string
+	dirty              bool // refetch jira issues from api if dirty
+	clearOptionVisible bool // tracks if clear excluded statuses option is visible
 }
 
 const (
 	JiraFetchRecordsThreshold = 100
 	topBarStatus              = 1
-	topBarAssignee            = 2
-	topBarLabel               = 3
-	topBarExcludeStatus       = 4
+	topBarExcludeStatus       = 2
+	topBarAssignee            = 3
+	topBarLabel               = 4
 )
 
 var (
@@ -44,7 +45,7 @@ var (
 	searchForStatus        *jira.IssueStatus // global in order to keep status&user between views
 	searchForUser          *jira.User
 	searchForLabel         string
-	excludeStatus          *jira.IssueStatus // global to track excluded status
+	excludedStatuses       []*jira.IssueStatus // global to track multiple excluded statuses
 	searchNavItems         = []ui.NavItemConfig{
 		ui.NavItemConfig{Action: ui.ActionSearchByStatus, Text1: ui.MessageByStatus, Text2: "[F1]", Key: tcell.KeyF1},
 		ui.NavItemConfig{Action: ui.ActionSearchByAssignee, Text1: ui.MessageByAssignee, Text2: "[F2]", Key: tcell.KeyF2},
@@ -59,9 +60,9 @@ func NewIssuesSearchView(project *jira.Project, goBackFn func(), api jira.Api) a
 	topBarItems := []ui.NavItemConfig{
 		ui.NavItemConfig{Text1: ui.MessageProjectLabel, Text2: app.ActionBarLabel(fmt.Sprintf("[%s]%s", project.Key, project.Name))},
 		ui.NavItemConfig{Text1: ui.MessageLabelStatus, Text2: ui.MessageAll},
+		ui.NavItemConfig{Text1: "Exclude Status: ", Text2: "-"},
 		ui.NavItemConfig{Text1: ui.MessageLabelAssignee, Text2: ui.MessageAll},
 		ui.NavItemConfig{Text1: ui.MessageLabelLabel, Text2: ui.MessageAll},
-		ui.NavItemConfig{Text1: "Exclude Status:", Text2: ui.MessageAll},
 	}
 	topBar := ui.CreateTopActionBarWithItems(topBarItems)
 	return &searchIssuesView{
@@ -133,16 +134,42 @@ func (view *searchIssuesView) Update() {
 		view.topBar.GetItem(topBarLabel).ChangeText(ui.MessageLabelLabel, searchForLabel)
 		view.topBar.Resize(view.screenX, view.screenY)
 	}
-	if excludeStatus != nil && excludeStatus.Name != ui.MessageAll {
-		expectedText := fmt.Sprintf("-%s", excludeStatus.Name)
+	// Handle excluded statuses display and clear option visibility
+	hasExcludedStatuses := len(excludedStatuses) > 0
+	if hasExcludedStatuses {
+		statusNames := make([]string, len(excludedStatuses))
+		for i, status := range excludedStatuses {
+			statusNames[i] = status.Name
+		}
+		expectedText := fmt.Sprintf("-%s", strings.Join(statusNames, ", -"))
 		if view.topBar.GetItem(topBarExcludeStatus).Text2 != expectedText {
-			view.topBar.GetItem(topBarExcludeStatus).ChangeText("Exclude Status:", expectedText)
+			view.topBar.GetItem(topBarExcludeStatus).ChangeText("Exclude Status: ", expectedText)
 			view.topBar.Resize(view.screenX, view.screenY)
 		}
+
+		// Add clear option if not visible
+		if !view.clearOptionVisible {
+			clearItem := &app.ActionBarItem{
+				Id:          int(ui.ActionClearExcludedStatuses),
+				Text1:       ui.MessageClearExcludedStatuses,
+				Text2:       "[c]",
+				Text1Style:  app.DefaultStyle().Background(app.Color("navigation.bottom.background")).Foreground(app.Color("navigation.bottom.foreground1")),
+				Text2Style:  app.DefaultStyle().Background(app.Color("navigation.bottom.background")).Foreground(app.Color("navigation.bottom.foreground2")),
+				TriggerRune: 'c',
+			}
+			view.bottomBar.AddItem(clearItem)
+			view.clearOptionVisible = true
+		}
 	} else {
-		if view.topBar.GetItem(topBarExcludeStatus).Text2 != ui.MessageAll {
-			view.topBar.GetItem(topBarExcludeStatus).ChangeText("Exclude Status:", ui.MessageAll)
+		if view.topBar.GetItem(topBarExcludeStatus).Text2 != "-" {
+			view.topBar.GetItem(topBarExcludeStatus).ChangeText("Exclude Status: ", "-")
 			view.topBar.Resize(view.screenX, view.screenY)
+		}
+
+		// Remove clear option if visible
+		if view.clearOptionVisible {
+			view.bottomBar.RemoveItem(int(ui.ActionClearExcludedStatuses))
+			view.clearOptionVisible = false
 		}
 	}
 }
@@ -179,7 +206,7 @@ func (view *searchIssuesView) runIssuesFuzzyFind() {
 			view.goBack()
 			searchForStatus = nil
 			searchForUser = nil
-			excludeStatus = nil
+			excludedStatuses = nil
 			return
 		}
 		chosenIssue := view.issues[chosen.Index]
@@ -224,6 +251,8 @@ func (view *searchIssuesView) handleSearchActions() {
 			view.runSelectBoard()
 		case ui.ActionExcludeStatus:
 			view.runExcludeStatus()
+		case ui.ActionClearExcludedStatuses:
+			view.runClearExcludedStatuses()
 		}
 	}
 }
@@ -258,12 +287,32 @@ func (view *searchIssuesView) runExcludeStatus() {
 	if status := <-view.fuzzyFind.Complete; true {
 		app.GetApp().ClearNow()
 		if status.Index >= 0 && len(ss) > 0 {
-			excludeStatus = &ss[status.Index]
-			view.dirty = true
+			selectedStatus := &ss[status.Index]
+			if selectedStatus.Name != ui.MessageAll {
+				// Check if status is already excluded to avoid duplicates
+				alreadyExcluded := false
+				for _, existing := range excludedStatuses {
+					if existing.Id == selectedStatus.Id {
+						alreadyExcluded = true
+						break
+					}
+				}
+				if !alreadyExcluded {
+					excludedStatuses = append(excludedStatuses, selectedStatus)
+					view.dirty = true
+				}
+			}
 		}
 		go view.runIssuesFuzzyFind()
 		go view.handleSearchActions()
 	}
+}
+
+func (view *searchIssuesView) runClearExcludedStatuses() {
+	excludedStatuses = nil
+	view.dirty = true
+	go view.runIssuesFuzzyFind()
+	go view.handleSearchActions()
 }
 
 func (view *searchIssuesView) runSelectUser() {
@@ -330,7 +379,7 @@ func (view *searchIssuesView) searchForIssues(query string) []jira.Issue {
 	if view.queryHasOnlyNumeric() && view.project != nil && view.project.Key != "" {
 		q = fmt.Sprintf("%s-%s", view.project.Key, q)
 	}
-	jql := BuildSearchIssuesJql(view.project, q, searchForStatus, searchForUser, searchForLabel, excludeStatus)
+	jql := BuildSearchIssuesJql(view.project, q, searchForStatus, searchForUser, searchForLabel, excludedStatuses)
 	// when custom JQL - use it instead of fuzzy query
 	if view.customJql != "" {
 		jql = view.customJql
