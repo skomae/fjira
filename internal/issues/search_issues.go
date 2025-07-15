@@ -35,6 +35,7 @@ const (
 	topBarStatus              = 1
 	topBarAssignee            = 2
 	topBarLabel               = 3
+	topBarExcludeStatus       = 4
 )
 
 var (
@@ -43,11 +44,13 @@ var (
 	searchForStatus        *jira.IssueStatus // global in order to keep status&user between views
 	searchForUser          *jira.User
 	searchForLabel         string
+	excludeStatus          *jira.IssueStatus // global to track excluded status
 	searchNavItems         = []ui.NavItemConfig{
 		ui.NavItemConfig{Action: ui.ActionSearchByStatus, Text1: ui.MessageByStatus, Text2: "[F1]", Key: tcell.KeyF1},
 		ui.NavItemConfig{Action: ui.ActionSearchByAssignee, Text1: ui.MessageByAssignee, Text2: "[F2]", Key: tcell.KeyF2},
 		ui.NavItemConfig{Action: ui.ActionSearchByLabel, Text1: ui.MessageByLabel, Text2: "[F3]", Key: tcell.KeyF3},
 		ui.NavItemConfig{Action: ui.ActionBoards, Text1: ui.MessageBoards, Text2: "[F4]", Key: tcell.KeyF4},
+		ui.NavItemConfig{Action: ui.ActionExcludeStatus, Text1: ui.MessageExcludeStatus, Text2: "[x]", Rune: 'x'},
 	}
 )
 
@@ -58,6 +61,7 @@ func NewIssuesSearchView(project *jira.Project, goBackFn func(), api jira.Api) a
 		ui.NavItemConfig{Text1: ui.MessageLabelStatus, Text2: ui.MessageAll},
 		ui.NavItemConfig{Text1: ui.MessageLabelAssignee, Text2: ui.MessageAll},
 		ui.NavItemConfig{Text1: ui.MessageLabelLabel, Text2: ui.MessageAll},
+		ui.NavItemConfig{Text1: "Exclude Status:", Text2: ui.MessageAll},
 	}
 	topBar := ui.CreateTopActionBarWithItems(topBarItems)
 	return &searchIssuesView{
@@ -129,6 +133,18 @@ func (view *searchIssuesView) Update() {
 		view.topBar.GetItem(topBarLabel).ChangeText(ui.MessageLabelLabel, searchForLabel)
 		view.topBar.Resize(view.screenX, view.screenY)
 	}
+	if excludeStatus != nil && excludeStatus.Name != ui.MessageAll {
+		expectedText := fmt.Sprintf("-%s", excludeStatus.Name)
+		if view.topBar.GetItem(topBarExcludeStatus).Text2 != expectedText {
+			view.topBar.GetItem(topBarExcludeStatus).ChangeText("Exclude Status:", expectedText)
+			view.topBar.Resize(view.screenX, view.screenY)
+		}
+	} else {
+		if view.topBar.GetItem(topBarExcludeStatus).Text2 != ui.MessageAll {
+			view.topBar.GetItem(topBarExcludeStatus).ChangeText("Exclude Status:", ui.MessageAll)
+			view.topBar.Resize(view.screenX, view.screenY)
+		}
+	}
 }
 
 func (view *searchIssuesView) Resize(screenX, screenY int) {
@@ -163,6 +179,7 @@ func (view *searchIssuesView) runIssuesFuzzyFind() {
 			view.goBack()
 			searchForStatus = nil
 			searchForUser = nil
+			excludeStatus = nil
 			return
 		}
 		chosenIssue := view.issues[chosen.Index]
@@ -205,6 +222,8 @@ func (view *searchIssuesView) handleSearchActions() {
 			view.runSelectLabel()
 		case ui.ActionBoards:
 			view.runSelectBoard()
+		case ui.ActionExcludeStatus:
+			view.runExcludeStatus()
 		}
 	}
 }
@@ -221,6 +240,25 @@ func (view *searchIssuesView) runSelectStatus() {
 		app.GetApp().ClearNow()
 		if status.Index >= 0 && len(ss) > 0 {
 			searchForStatus = &ss[status.Index]
+			view.dirty = true
+		}
+		go view.runIssuesFuzzyFind()
+		go view.handleSearchActions()
+	}
+}
+
+func (view *searchIssuesView) runExcludeStatus() {
+	app.GetApp().ClearNow()
+	app.GetApp().Loading(true)
+	ss := view.fetchStatuses(view.project.Id)
+	ss = append(ss, jira.IssueStatus{Name: ui.MessageAll})
+	statusesStrings := statuses.FormatJiraStatuses(ss)
+	view.fuzzyFind = app.NewFuzzyFind("Select status to exclude or ESC to cancel", statusesStrings)
+	app.GetApp().Loading(false)
+	if status := <-view.fuzzyFind.Complete; true {
+		app.GetApp().ClearNow()
+		if status.Index >= 0 && len(ss) > 0 {
+			excludeStatus = &ss[status.Index]
 			view.dirty = true
 		}
 		go view.runIssuesFuzzyFind()
@@ -292,7 +330,7 @@ func (view *searchIssuesView) searchForIssues(query string) []jira.Issue {
 	if view.queryHasOnlyNumeric() && view.project != nil && view.project.Key != "" {
 		q = fmt.Sprintf("%s-%s", view.project.Key, q)
 	}
-	jql := BuildSearchIssuesJql(view.project, q, searchForStatus, searchForUser, searchForLabel)
+	jql := BuildSearchIssuesJql(view.project, q, searchForStatus, searchForUser, searchForLabel, excludeStatus)
 	// when custom JQL - use it instead of fuzzy query
 	if view.customJql != "" {
 		jql = view.customJql
