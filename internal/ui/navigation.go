@@ -27,6 +27,7 @@ const (
 	ActionRefresh
 	ActionExcludeStatus
 	ActionClearExcludedStatuses
+	ActionCreateIssue
 )
 
 type NavItemConfig struct {
@@ -192,6 +193,17 @@ func NewOpenBarItem() *app.ActionBarItem {
 		Text1Style:  bottomBarItemDefaultStyle(),
 		Text2Style:  bottomBarActionBarKeyBold(),
 		TriggerRune: 'o',
+	}
+}
+
+func NewCreateIssueBarItem() *app.ActionBarItem {
+	return &app.ActionBarItem{
+		Id:          int(ActionCreateIssue),
+		Text1:       MessageCreateIssue,
+		Text2:       "[c]",
+		Text1Style:  bottomBarItemDefaultStyle(),
+		Text2Style:  bottomBarActionBarKeyBold(),
+		TriggerRune: 'c',
 	}
 }
 

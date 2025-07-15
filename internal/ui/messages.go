@@ -63,6 +63,7 @@ const (
 	MessageBoards                    = "boards"
 	MessageAssignUser                = "Assign user "
 	MessageComment                   = "Comment "
+	MessageCreateIssue               = "Create issue "
 	MessageLabel                     = "Label "
 	MessageYes                       = "Yes "
 	MessageOpen                      = "Open "

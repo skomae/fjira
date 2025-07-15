@@ -2,6 +2,7 @@ package issues
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -51,6 +52,7 @@ var (
 		ui.NavItemConfig{Action: ui.ActionSearchByAssignee, Text1: ui.MessageByAssignee, Text2: "[F2]", Key: tcell.KeyF2},
 		ui.NavItemConfig{Action: ui.ActionSearchByLabel, Text1: ui.MessageByLabel, Text2: "[F3]", Key: tcell.KeyF3},
 		ui.NavItemConfig{Action: ui.ActionBoards, Text1: ui.MessageBoards, Text2: "[F4]", Key: tcell.KeyF4},
+		ui.NavItemConfig{Action: ui.ActionCreateIssue, Text1: ui.MessageCreateIssue, Text2: "[c]", Rune: 'c'},
 		ui.NavItemConfig{Action: ui.ActionExcludeStatus, Text1: ui.MessageExcludeStatus, Text2: "[x]", Rune: 'x'},
 	}
 )
@@ -249,6 +251,8 @@ func (view *searchIssuesView) handleSearchActions() {
 			view.runSelectLabel()
 		case ui.ActionBoards:
 			view.runSelectBoard()
+		case ui.ActionCreateIssue:
+			view.runCreateIssue()
 		case ui.ActionExcludeStatus:
 			view.runExcludeStatus()
 		case ui.ActionClearExcludedStatuses:
@@ -364,6 +368,25 @@ func (view *searchIssuesView) runSelectBoard() {
 		go view.runIssuesFuzzyFind()
 		go view.handleSearchActions()
 	}
+}
+
+func (view *searchIssuesView) runCreateIssue() {
+	// Open create issue page with project context
+	jiraUrl := view.api.GetApiUrl()
+	createUrl := fmt.Sprintf("%s/secure/CreateIssue!default.jspa", jiraUrl)
+
+	// Add query parameters if available
+	params := url.Values{}
+	if view.project != nil && view.project.Id != "" && view.project.Id != ui.MessageAll {
+		params.Add("pid", view.project.Id)
+	}
+	if len(params) > 0 {
+		createUrl += "?" + params.Encode()
+	}
+
+	app.OpenLink(createUrl)
+	go view.runIssuesFuzzyFind()
+	go view.handleSearchActions()
 }
 
 func (view *searchIssuesView) reopen() {

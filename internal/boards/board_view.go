@@ -2,6 +2,7 @@ package boards
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -94,6 +95,7 @@ func NewBoardView(project *jira.Project, boardConfiguration *jira.BoardConfigura
 	bottomBar.AddItem(ui.CreateArrowsNavigateItem())
 	bottomBar.AddItem(ui.CreateSelectItem())
 	bottomBar.AddItem(ui.NewAssigneeFilterBarItem())
+	bottomBar.AddItem(ui.NewCreateIssueBarItem())
 	bottomBar.AddItem(ui.NewOpenBarItem())
 	bottomBar.AddItem(ui.NewCancelBarItem())
 	selectedIssueBottomBar := ui.CreateBottomLeftBar()
@@ -446,6 +448,26 @@ func (b *boardView) handleActions() {
 				if b.goBackFn != nil {
 					b.goBackFn()
 				}
+			case ui.ActionCreateIssue:
+				// Open create issue page with project and board context
+				jiraUrl := b.api.GetApiUrl()
+				createUrl := fmt.Sprintf("%s/secure/CreateIssue!default.jspa", jiraUrl)
+
+				// Add query parameters if available
+				params := url.Values{}
+				if b.project != nil && b.project.Id != "" {
+					params.Add("pid", b.project.Id)
+				}
+				if b.boardConfiguration.Id > 0 {
+					params.Add("boardId", fmt.Sprintf("%d", b.boardConfiguration.Id))
+				}
+				if len(params) > 0 {
+					createUrl += "?" + params.Encode()
+				}
+
+				app.OpenLink(createUrl)
+				go b.handleActions()
+				return
 			case ui.ActionOpen:
 				app.GoTo("issue", b.highlightedIssue.Id, b.reopen, b.api)
 			}
