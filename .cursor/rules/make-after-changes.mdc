@@ -1,0 +1,5 @@
+---
+description: when making changes, always run `make all` to see if the project builds. if it fails, try to fix the issues without additional prompting unless failure is ambiguous.
+globs:
+alwaysApply: true
+---

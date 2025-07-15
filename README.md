@@ -27,6 +27,7 @@ before.
 - **Multi-Workspace Support:** Manage multiple Jira workspaces effortlessly.
 - **Custom Searches:** Use Jira Query Language (JQL) for tailored searches.
 - **Direct CLI Access:** Access Jira issues directly from the command line.
+- **MCP Server:** Enable AI tools like Claude Desktop to query Jira issues via Model Context Protocol.
 - **Cross-Platform Compatibility:** Works seamlessly on macOS, Linux, and Windows.
 
 ## Installation
@@ -94,6 +95,7 @@ Available Commands:
   filters     Search using Jira filters
   help        Help about any command
   jql         Search using custom JQL queries
+  mcp         Start MCP server for Jira issue querying
   version     Print the version number of fjira
   workspace   Switch to a different workspace
 

@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/mk-5/fjira/cmd/fjira-cli/commands"
 	"os"
+
+	"github.com/mk-5/fjira/cmd/fjira-cli/commands"
 )
 
 var (
@@ -21,6 +22,7 @@ func initCli() {
 	rootCmd.AddCommand(commands.GetWorkspaceCmd())
 	rootCmd.AddCommand(commands.GetJqlCmd())
 	rootCmd.AddCommand(commands.GetFiltersCmd())
+	rootCmd.AddCommand(commands.GetMcpCmd())
 	rootCmd.AddCommand(commands.GetVersionCmd(version))
 
 	if err := rootCmd.Execute(); err != nil {
