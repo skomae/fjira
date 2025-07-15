@@ -3,6 +3,7 @@ package jira
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 type IssueType struct {
@@ -40,6 +41,12 @@ type IssueFields struct {
 	Labels []string `json:"labels"`
 }
 
+type descriptionUpdateRequestBody struct {
+	Fields struct {
+		Description string `json:"description"`
+	} `json:"fields"`
+}
+
 const (
 	GetJiraIssuePath = "/rest/api/2/issue/%s"
 )
@@ -54,4 +61,18 @@ func (api *httpApi) GetIssueDetailed(id string) (*Issue, error) {
 		return nil, SearchDeserializeErr
 	}
 	return &jiraIssue, nil
+}
+
+func (api *httpApi) DoUpdateDescription(issueId string, description string) error {
+	request := &descriptionUpdateRequestBody{}
+	request.Fields.Description = description
+	jsonBody, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	_, err = api.jiraRequest("PUT", fmt.Sprintf(GetJiraIssuePath, issueId), &nilParams{}, strings.NewReader(string(jsonBody)))
+	if err != nil {
+		return err
+	}
+	return nil
 }

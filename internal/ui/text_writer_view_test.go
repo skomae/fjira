@@ -2,11 +2,12 @@ package ui
 
 import (
 	"bytes"
+	"testing"
+	"time"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/mk-5/fjira/internal/app"
 	"github.com/stretchr/testify/assert"
-	"testing"
-	"time"
 )
 
 func TestTextWriterView(t *testing.T) {
@@ -57,6 +58,11 @@ func Test_fjiraTextWriterView_Draw(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			view := NewTextWriterView(&TextWriterArgs{}).(*TextWriterView)
 			view.text = "Test text"
+
+			// Initialize screen dimensions and update text lines
+			x, y := tt.args.screen.Size()
+			view.Resize(x, y)
+			view.updateTextLines()
 
 			// when
 			view.Draw(tt.args.screen)

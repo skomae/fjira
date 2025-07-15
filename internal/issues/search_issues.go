@@ -54,7 +54,6 @@ var (
 		ui.NavItemConfig{Action: ui.ActionBoards, Text1: ui.MessageBoards, Text2: "[F4]", Key: tcell.KeyF4},
 		ui.NavItemConfig{Action: ui.ActionCreateIssue, Text1: ui.MessageCreateIssue, Text2: "[F6]", Key: tcell.KeyF6},
 		ui.NavItemConfig{Action: ui.ActionExcludeStatus, Text1: ui.MessageExcludeStatus, Text2: "[F7]", Key: tcell.KeyF7},
-		ui.NavItemConfig{Action: ui.ActionClearExcludedStatuses, Text1: ui.MessageClearExcludedStatuses, Text2: "[F8]", Key: tcell.KeyF8},
 	}
 )
 
@@ -153,12 +152,12 @@ func (view *searchIssuesView) Update() {
 		// Add clear option if not visible
 		if !view.clearOptionVisible {
 			clearItem := &app.ActionBarItem{
-				Id:          int(ui.ActionClearExcludedStatuses),
-				Text1:       ui.MessageClearExcludedStatuses,
-				Text2:       "[c]",
-				Text1Style:  app.DefaultStyle().Background(app.Color("navigation.bottom.background")).Foreground(app.Color("navigation.bottom.foreground1")),
-				Text2Style:  app.DefaultStyle().Background(app.Color("navigation.bottom.background")).Foreground(app.Color("navigation.bottom.foreground2")),
-				TriggerRune: 'c',
+				Id:         int(ui.ActionClearExcludedStatuses),
+				Text1:      ui.MessageClearExcludedStatuses,
+				Text2:      "[F8]",
+				Text1Style: app.DefaultStyle().Background(app.Color("navigation.bottom.background")).Foreground(app.Color("navigation.bottom.foreground1")),
+				Text2Style: app.DefaultStyle().Background(app.Color("navigation.bottom.background")).Foreground(app.Color("navigation.bottom.foreground2")),
+				TriggerKey: tcell.KeyF8,
 			}
 			view.bottomBar.AddItem(clearItem)
 			view.clearOptionVisible = true

@@ -50,6 +50,7 @@ const (
 	MessageChangeStatusSuccess       = "Status for issue %s has been successfully changed to %s."
 	MessageAll                       = "All"
 	MessageTypeCommentAndSave        = "Type new comment, and press F1 to save:"
+	MessageTypeDescriptionAndSave    = "Edit description, and press F1 to save:"
 	MessageTypeJqlAndSave            = "Type new JQL, and press F1 to save:"
 	MessageSummary                   = "Summary"
 	MessageDescription               = "Description"

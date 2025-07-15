@@ -42,6 +42,7 @@ var (
 		ui.NavItemConfig{Action: ui.ActionStatusChange, Text1: ui.MessageChangeStatus, Text2: "[s]", Rune: 's'},
 		ui.NavItemConfig{Action: ui.ActionAssigneeChange, Text1: ui.MessageAssignUser, Text2: "[a]", Rune: 'a'},
 		ui.NavItemConfig{Action: ui.ActionComment, Text1: ui.MessageComment, Text2: "[c]", Rune: 'c'},
+		ui.NavItemConfig{Action: ui.ActionEditDescription, Text1: "Edit description ", Text2: "[d]", Rune: 'd'},
 		ui.NavItemConfig{Action: ui.ActionAddLabel, Text1: ui.MessageLabel, Text2: "[l]", Rune: 'l'},
 		ui.NavItemConfig{Action: ui.ActionCreateIssue, Text1: ui.MessageCreateIssue, Text2: "[F6]", Key: tcell.KeyF6},
 		ui.NavItemConfig{Action: ui.ActionOpen, Text1: ui.MessageOpen, Text2: "[o]", Rune: 'o'},
@@ -195,6 +196,19 @@ func (view *issueView) handleIssueAction() {
 				MaxLength: maxCommentLineWidth,
 			})
 			return
+		case ui.ActionEditDescription:
+			app.GoTo("text-writer", &ui.TextWriterArgs{
+				Header: ui.MessageTypeDescriptionAndSave,
+				GoBack: func() {
+					view.reopen()
+				},
+				TextConsumer: func(s string) {
+					view.doUpdateDescription(view.issue, s)
+				},
+				MaxLength:   1000,
+				InitialText: view.issue.Fields.Description,
+			})
+			return
 		case ui.ActionAddLabel:
 			app.GoTo("labels-add", view.issue, view.reopen, view.api)
 			return
@@ -242,4 +256,15 @@ func (view *issueView) doComment(issue *jira.Issue, comment string) {
 		app.Error(fmt.Sprintf(ui.MessageCannotAddComment, issue.Key, err))
 	}
 	app.Success(fmt.Sprintf(ui.MessageCommentSuccess, issue.Key))
+}
+
+func (view *issueView) doUpdateDescription(issue *jira.Issue, description string) {
+	app.GetApp().LoadingWithText(true, "Updating description")
+	err := view.api.DoUpdateDescription(issue.Key, description)
+	app.GetApp().Loading(false)
+	if err != nil {
+		app.Error(fmt.Sprintf("Cannot update description for %s. Reason: %s", issue.Key, err))
+		return
+	}
+	app.Success(fmt.Sprintf("Description updated successfully for %s", issue.Key))
 }

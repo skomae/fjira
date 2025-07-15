@@ -28,6 +28,7 @@ const (
 	ActionExcludeStatus
 	ActionClearExcludedStatuses
 	ActionCreateIssue
+	ActionEditDescription
 )
 
 type NavItemConfig struct {

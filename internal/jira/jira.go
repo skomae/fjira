@@ -23,6 +23,7 @@ type Api interface {
 	DoAssignee(issueId string, user *User) error
 	GetIssueDetailed(issueId string) (*Issue, error)
 	DoComment(issueId string, commentBody string) error
+	DoUpdateDescription(issueId string, description string) error
 	FindBoards(projectKeyOrId string) ([]BoardItem, error)
 	GetBoardConfiguration(boardId int) (*BoardConfiguration, error)
 	GetBoardProjects(boardId int) ([]Project, error)
