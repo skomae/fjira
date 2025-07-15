@@ -52,8 +52,9 @@ var (
 		ui.NavItemConfig{Action: ui.ActionSearchByAssignee, Text1: ui.MessageByAssignee, Text2: "[F2]", Key: tcell.KeyF2},
 		ui.NavItemConfig{Action: ui.ActionSearchByLabel, Text1: ui.MessageByLabel, Text2: "[F3]", Key: tcell.KeyF3},
 		ui.NavItemConfig{Action: ui.ActionBoards, Text1: ui.MessageBoards, Text2: "[F4]", Key: tcell.KeyF4},
-		ui.NavItemConfig{Action: ui.ActionCreateIssue, Text1: ui.MessageCreateIssue, Text2: "[c]", Rune: 'c'},
-		ui.NavItemConfig{Action: ui.ActionExcludeStatus, Text1: ui.MessageExcludeStatus, Text2: "[x]", Rune: 'x'},
+		ui.NavItemConfig{Action: ui.ActionCreateIssue, Text1: ui.MessageCreateIssue, Text2: "[F6]", Key: tcell.KeyF6},
+		ui.NavItemConfig{Action: ui.ActionExcludeStatus, Text1: ui.MessageExcludeStatus, Text2: "[F7]", Key: tcell.KeyF7},
+		ui.NavItemConfig{Action: ui.ActionClearExcludedStatuses, Text1: ui.MessageClearExcludedStatuses, Text2: "[F8]", Key: tcell.KeyF8},
 	}
 )
 
