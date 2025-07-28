@@ -106,6 +106,14 @@ func (view *searchIssuesView) Init() {
 	go view.handleSearchActions()
 }
 
+// GetTitleInfo returns view type, project key, and empty summary for dynamic title
+func (view *searchIssuesView) GetTitleInfo() (string, string, string) {
+	if view.project != nil {
+		return "project", view.project.Key, ""
+	}
+	return "", "", ""
+}
+
 func (view *searchIssuesView) Destroy() {
 	// do nothing
 }

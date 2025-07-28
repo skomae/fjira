@@ -3,10 +3,11 @@ package commands
 import (
 	"context"
 	"errors"
+	"regexp"
+
 	"github.com/mk-5/fjira/internal/fjira"
 	"github.com/mk-5/fjira/internal/workspaces"
 	"github.com/spf13/cobra"
-	"regexp"
 )
 
 type CtxVarWorkspaceSettings string

@@ -131,6 +131,8 @@ func initAppWithScreen(screen tcell.Screen) {
 		spinner:         s,
 		style:           DefaultStyle(),
 	}
+	// Set initial title
+	appInstance.UpdateTitle()
 }
 
 func (a *App) Start() {
@@ -232,6 +234,7 @@ func (a *App) SetView(view View) {
 	a.AddSystem(view.(System))
 	a.keepAlive[view] = true
 	view.Init()
+	a.UpdateTitle() // Update title based on new view context
 	a.viewMutex.Unlock()
 }
 
@@ -348,6 +351,45 @@ func (a *App) RunOnAppRoutine(f func()) {
 
 func (a *App) Quit() {
 	a.quit = true
+}
+
+// SetTitle sets the terminal window title
+func (a *App) SetTitle(title string) {
+	if a.screen != nil {
+		a.screen.SetTitle(title)
+	}
+}
+
+// UpdateTitle updates the terminal title based on current view context
+func (a *App) UpdateTitle() {
+	if a.view == nil {
+		a.SetTitle("fjira")
+		return
+	}
+
+	title := "fjira"
+
+	// Check if view has GetTitleInfo method for custom title
+	if titleProvider, ok := a.view.(interface {
+		GetTitleInfo() (string, string, string)
+	}); ok {
+		viewType, key, summary := titleProvider.GetTitleInfo()
+		switch viewType {
+		case "issue":
+			if key != "" && summary != "" {
+				if len(summary) > 45 {
+					summary = summary[:45] + "..."
+				}
+				title = fmt.Sprintf("fjira - %s: %s", key, summary)
+			}
+		case "project":
+			if key != "" && key != "All" {
+				title = fmt.Sprintf("fjira - %s", key)
+			}
+		}
+	}
+
+	a.SetTitle(title)
 }
 
 func (a *App) PanicRecover() {

@@ -227,6 +227,14 @@ func (b *boardView) Init() {
 	go b.handleActions()
 }
 
+// GetTitleInfo returns view type, project key, and empty summary for dynamic title
+func (b *boardView) GetTitleInfo() (string, string, string) {
+	if b.project != nil {
+		return "project", b.project.Key, ""
+	}
+	return "", "", ""
+}
+
 func (b *boardView) Destroy() {
 	// ...
 }

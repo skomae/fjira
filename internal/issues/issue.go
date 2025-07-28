@@ -87,6 +87,14 @@ func (view *issueView) Init() {
 	go view.handleIssueAction()
 }
 
+// GetTitleInfo returns view type, key, and summary for dynamic title
+func (view *issueView) GetTitleInfo() (string, string, string) {
+	if view.issue != nil {
+		return "issue", view.issue.Key, view.issue.Fields.Summary
+	}
+	return "", "", ""
+}
+
 func (view *issueView) Destroy() {
 }
 
