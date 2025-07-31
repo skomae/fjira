@@ -1,4 +1,4 @@
 ---
-description: when adding debug logs, write them to the project root as fjira_debug.log ; when reading logs during debugging sessions, read from that file. cleanup: after solving an issue, clear the log, remove all debugLog lines, preserving the debugLog function itself
+description: when adding debug logs, write them to the project root (existing path is like .../fjira) as fjira_debug.log ; when reading logs during debugging sessions, read from that file. cleanup: after solving an issue, clear the log, remove all debugLog lines, preserving the debugLog function itself
 alwaysApply: false
 ---

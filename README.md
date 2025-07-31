@@ -18,6 +18,55 @@ before.
 
 ![Fjira Demo](demo.gif)
 
+## Key Improvements from upstream (`mk-5/fjira`)
+
+Apologies as these features still need to be tidied up and cherry-picked before offering as upstream MRs. Feel free to snag the commits you need (likely with minor adjustment as many changes have been added to this fork.)
+
+### 🚀 **New Features & Major Enhancements**
+
+#### **MCP (Model Context Protocol) Integration**
+- **MCP Capability**: `d8cd439` - use `mcp` argument for AI assistant MCP serving
+  - **Relevant Files**: `cmd/fjira-cli/commands/mcp.go`, `docs/fjira_mcp.md`, `TESTING_MCP.md`
+  - **Usage**: ```{
+  "mcpServers": {
+    "jira": {
+      "command": "fjira-mcp",
+      "args": [
+        "mcp"
+      ]
+    },```
+
+#### **Issue Management Enhancements**
+- **Issue Creation**: `6bfb35f`, `fda5117` - Added Create Issue shortcut key (opens web browser)
+- **Issue Editing**: `811e06e` - Added issue description editing directly within fjira
+- **Issue Search**: `0dce864` - Added issue number search when using project filter (no need to type the `PROJ-` ahead of the issue number)
+- **Issue Detail View**: `b9b2d30` - Added F5 for refresh and E for edit shortcuts
+
+#### **Advanced Filtering System**
+- **Status Exclusion**: `2a7d410`, `fa8c5a9` - Added exclude status filter to Issues List with support for multiple excludes and clear shortcut
+
+### 🐛 **Bug Fixes**
+
+#### **Board View Fixes**
+- **Navigation**: `c0cf8cb` - Improved issue editing workflow (edit in detail view instead of move swim lanes)
+- **Scrolling Issues**: `d1737c6`, `4ce6ae5` - Fixed multiple board view scrolling bugs:
+  - Crash when scrolling past last column
+  - First column not scrolling back into view  
+  - Filtering by attendee scrolling problems
+- **Board Filtering**: `15b51ac`, `c0cf8cb` - Enhanced Board View to automatically filter by current sprint, add shortcut key to filter by assignee
+- **Board Arguments**: `2f31126` - Added `--board=` command line argument to launch Board View directly from CLI
+
+### ⚡ **Performance & Code Quality Improvements**
+
+#### **Performance Optimization**
+- **CPU Usage**: `a2db6b7` - Removed empty default case that was consuming up to 10% CPU cycles
+- **Thread Safety**: `15b51ac` - Added mutex on colors.go for thread safety
+
+#### **UI/UX Improvements**
+- **Visual Enhancements**: 
+  - `3a52d7b` - Added title updates for issue view and project selection
+  - `900a101` - Removed background coloring for transparent terminal compatibility
+
 ## Key Features
 
 - **Fuzzy-find like interface:** Search for Jira projects and issues with ease.
