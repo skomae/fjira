@@ -2,14 +2,15 @@ package issues
 
 import (
 	"bytes"
-	"github.com/gdamore/tcell/v2"
-	"github.com/mk-5/fjira/internal/app"
-	"github.com/mk-5/fjira/internal/jira"
-	assert2 "github.com/stretchr/testify/assert"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gdamore/tcell/v2"
+	"github.com/mk-5/fjira/internal/app"
+	"github.com/mk-5/fjira/internal/jira"
+	assert2 "github.com/stretchr/testify/assert"
 )
 
 const jiraIssueJson = `
@@ -273,7 +274,7 @@ func Test_fjiraIssueView_HandleKeyEvent(t *testing.T) {
 	tests := []struct {
 		name string
 	}{
-		{"should process scrollUp&scrollDown"},
+		{"should process scrollUp&scrollDown&pageUpDown"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -306,6 +307,29 @@ func Test_fjiraIssueView_HandleKeyEvent(t *testing.T) {
 
 			// then
 			assert2.Equal(t, 0, view.scrollY)
+
+			// test page navigation
+			view.screenY = 40 // set screen height for page size calculation
+			expectedPageSize := view.calculatePageSize()
+
+			// when page down
+			view.HandleKeyEvent(tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone))
+
+			// then
+			assert2.Equal(t, expectedPageSize, view.scrollY)
+
+			// and when page up
+			view.HandleKeyEvent(tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone))
+
+			// then
+			assert2.Equal(t, 0, view.scrollY)
+
+			// test page down multiple times
+			view.HandleKeyEvent(tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone))
+			view.HandleKeyEvent(tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone))
+
+			// then should not exceed maxScrollY
+			assert2.Equal(t, expectedPageSize*2, view.scrollY)
 		})
 	}
 }

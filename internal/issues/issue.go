@@ -31,6 +31,7 @@ type issueView struct {
 	labelsLen         int
 	comments          []comments.Comment
 	lastY             int
+	screenY           int
 	boxTitleStyle     tcell.Style
 	defaultStyle      tcell.Style
 }
@@ -130,6 +131,7 @@ func (view *issueView) Update() {
 }
 
 func (view *issueView) Resize(screenX, screenY int) {
+	view.screenY = screenY
 	view.descriptionLimitX = app.ClampInt(int(math.Floor(float64(screenX)*0.9)), 1, 10000)
 	view.descriptionLimitY = 1000
 	view.descriptionLines = app.DrawTextLimited(nil, 0, 0, view.descriptionLimitX, view.descriptionLimitY, view.defaultStyle, view.body) + 1
@@ -160,6 +162,29 @@ func (view *issueView) HandleKeyEvent(ev *tcell.EventKey) {
 	if ev.Key() == tcell.KeyDown || ev.Key() == tcell.KeyBacktab {
 		view.scrollY = app.ClampInt(view.scrollY+1, 0, view.maxScrollY)
 	}
+	if ev.Key() == tcell.KeyPgUp {
+		pageSize := view.calculatePageSize()
+		view.scrollY = app.ClampInt(view.scrollY-pageSize, 0, view.maxScrollY)
+	}
+	if ev.Key() == tcell.KeyPgDn {
+		pageSize := view.calculatePageSize()
+		view.scrollY = app.ClampInt(view.scrollY+pageSize, 0, view.maxScrollY)
+	}
+}
+
+// calculatePageSize returns how many rows PgUp/PgDn should advance scrollY.
+// Visible content height is screen height minus chrome (top/bottom bars + a
+// margin), capped at half the screen so a page-jump never feels disorienting,
+// and floored at 5 so very small terminals still scroll noticeably.
+func (view *issueView) calculatePageSize() int {
+	const chromeRows = 16 // top/bottom bars (12) + margin (4)
+	const minPage = 5
+	visibleHeight := view.screenY - chromeRows
+	pageSize := app.ClampInt(visibleHeight, 1, view.screenY/2)
+	if pageSize < minPage {
+		pageSize = minPage
+	}
+	return pageSize
 }
 
 func (view *issueView) goBack() {
