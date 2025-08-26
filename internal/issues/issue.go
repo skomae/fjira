@@ -33,6 +33,7 @@ type issueView struct {
 	labelsLen         int
 	comments          []comments.Comment
 	lastY             int
+	screenY           int
 	boxTitleStyle     tcell.Style
 	defaultStyle      tcell.Style
 }
@@ -142,6 +143,7 @@ func (view *issueView) Update() {
 }
 
 func (view *issueView) Resize(screenX, screenY int) {
+	view.screenY = screenY
 	view.descriptionLimitX = app.ClampInt(int(math.Floor(float64(screenX)*0.9)), 1, 10000)
 	view.descriptionLimitY = 1000
 	view.descriptionLines = app.DrawTextLimited(nil, 0, 0, view.descriptionLimitX, view.descriptionLimitY, view.defaultStyle, view.body) + 1
@@ -172,6 +174,31 @@ func (view *issueView) HandleKeyEvent(ev *tcell.EventKey) {
 	if ev.Key() == tcell.KeyDown || ev.Key() == tcell.KeyBacktab {
 		view.scrollY = app.ClampInt(view.scrollY+1, 0, view.maxScrollY)
 	}
+	if ev.Key() == tcell.KeyPgUp {
+		pageSize := view.calculatePageSize()
+		view.scrollY = app.ClampInt(view.scrollY-pageSize, 0, view.maxScrollY)
+	}
+	if ev.Key() == tcell.KeyPgDn {
+		pageSize := view.calculatePageSize()
+		view.scrollY = app.ClampInt(view.scrollY+pageSize, 0, view.maxScrollY)
+	}
+}
+
+func (view *issueView) calculatePageSize() int {
+	// Calculate visible area for content by subtracting UI elements
+	topAndBottomBarSize := 12 // Top and bottom bars
+	marginBuffer := 4         // Extra space for margins and padding
+	visibleHeight := view.screenY - topAndBottomBarSize - marginBuffer
+
+	// Ensure a reasonable page size (minimum 1, maximum half the screen)
+	pageSize := app.ClampInt(visibleHeight, 1, view.screenY/2)
+
+	// If the calculated page size is too small, use a default minimum
+	if pageSize < 5 {
+		pageSize = 5
+	}
+
+	return pageSize
 }
 
 func (view *issueView) goBack() {
