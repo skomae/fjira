@@ -300,10 +300,7 @@ func (b *boardView) moveCursorRight() {
 	// no issues in a column; jump to next available
 	for column := b.cursorX + 1; column < len(b.columns); column++ {
 		rowCount, ok := b.issuesColumnRowCount[column]
-		if !ok {
-			continue
-		}
-		if rowCount > 0 {
+		if ok && rowCount > 0 {
 			b.cursorX = column
 			// ensure Y within bounds of column
 			b.cursorY = app.MinInt(b.cursorY, rowCount-1)
@@ -326,10 +323,7 @@ func (b *boardView) moveCursorLeft() {
 	// no issues in a column; jump to next available
 	for column := b.cursorX - 1; column >= 0; column-- {
 		rowCount, ok := b.issuesColumnRowCount[column]
-		if !ok {
-			continue
-		}
-		if rowCount > 0 {
+		if ok && rowCount > 0 {
 			b.cursorX = column
 			// ensure Y within bounds of column
 			b.cursorY = app.MinInt(b.cursorY, rowCount-1)
@@ -494,7 +488,7 @@ func (b *boardView) ensureHighlightInViewport() {
 	if b.highlightedIssue == nil {
 		return
 	}
-	if b.cursorX == 0 {
+	if b.scrollX > (b.cursorX * b.columnSize) {
 		b.scrollX = 0
 	} else if b.scrollX+(b.cursorX*b.columnSize)+b.columnSize > b.screenX { // highlighted issue out of screen
 		b.scrollX = app.MaxInt(0, (b.cursorX-2)*b.columnSize)
@@ -502,7 +496,7 @@ func (b *boardView) ensureHighlightInViewport() {
 	if b.scrollY+b.cursorY > b.scrollY { // highlighted issue out of screen
 		b.scrollY = app.MaxInt(0, b.cursorY-2)
 	} else if b.scrollY > b.cursorY {
-		b.scrollY = app.MinInt(0, b.cursorY)
+		b.scrollY = 0
 	}
 }
 
