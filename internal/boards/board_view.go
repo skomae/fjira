@@ -41,6 +41,7 @@ type boardView struct {
 	columnsX               map[int]int
 	issuesRow              map[string]int
 	issuesColumn           map[string]int
+	issuesColumnRowCount   map[int]int
 	issuesSummaries        map[string]string
 	goBackFn               func()
 	columns                []string
@@ -274,10 +275,10 @@ func (b *boardView) HandleKeyEvent(ev *tcell.EventKey) {
 		}
 	}
 	if ev.Key() == tcell.KeyRight || ev.Rune() == vimRight {
-		b.moveCursorRight(0)
+		b.moveCursorRight()
 	}
 	if ev.Key() == tcell.KeyLeft || ev.Rune() == vimLeft {
-		b.moveCursorLeft(0)
+		b.moveCursorLeft()
 	}
 	if ev.Key() == tcell.KeyUp || ev.Rune() == vimUp {
 		b.cursorY = app.MaxInt(0, b.cursorY-1)
@@ -349,60 +350,56 @@ func (b *boardView) drawColumnsHeaders(screen tcell.Screen) {
 	}
 }
 
-func (b *boardView) moveCursorRight(recursionDepth ...int) {
-	maxDepth := 20 // Prevent infinite recursion
-	depth := 0
-	if len(recursionDepth) > 0 {
-		depth = recursionDepth[0]
-	}
-	if depth > maxDepth {
-		debugLog("[DEBUG] moveCursorRight: max recursion depth reached, aborting to prevent freeze")
-		return
-	}
+func (b *boardView) moveCursorRight() {
 	if b.cursorX+1 >= len(b.columns) {
-		debugLog("[DEBUG] moveCursorRight: already at rightmost column, cannot move further right")
 		return
 	}
-	b.cursorX = app.MinInt(len(b.columns)-1, b.cursorX+1)
-	b.cursorY = 0
+
 	if b.issueSelected {
+		b.cursorX = app.MinInt(len(b.columns)-1, b.cursorX+1)
 		b.moveIssue(b.highlightedIssue, 1)
 		return
 	}
-	// no issues in a column
-	if f := b.refreshHighlightedIssue(); !f {
-		b.moveCursorRight(depth + 1)
-		return
+	// no issues in a column; jump to next available
+	for column := b.cursorX + 1; column < len(b.columns); column++ {
+		rowCount, ok := b.issuesColumnRowCount[column]
+		if !ok {
+			continue
+		}
+		if rowCount > 0 {
+			b.cursorX = column
+			// ensure Y within bounds of column
+			b.cursorY = app.MinInt(b.cursorY, rowCount-1)
+			b.refreshHighlightedIssue()
+			return
+		}
 	}
-	b.scrollY = 0
 }
 
-func (b *boardView) moveCursorLeft(recursionDepth ...int) {
-	maxDepth := 20 // Prevent infinite recursion
-	depth := 0
-	if len(recursionDepth) > 0 {
-		depth = recursionDepth[0]
-	}
-	if depth > maxDepth {
-		debugLog("[DEBUG] moveCursorLeft: max recursion depth reached, aborting to prevent freeze")
-		return
-	}
+func (b *boardView) moveCursorLeft() {
 	if b.cursorX-1 < 0 {
-		debugLog("[DEBUG] moveCursorLeft: already at leftmost column, cannot move further left")
 		return
 	}
-	b.cursorX = app.MaxInt(0, b.cursorX-1)
-	b.cursorY = 0
+
 	if b.issueSelected {
+		b.cursorX = app.MaxInt(0, b.cursorX-1)
 		b.moveIssue(b.highlightedIssue, -1)
 		return
 	}
-	// no issues in a column
-	if f := b.refreshHighlightedIssue(); !f {
-		b.moveCursorLeft(depth + 1)
-		return
+	// no issues in a column; jump to next available
+	for column := b.cursorX - 1; column >= 0; column-- {
+		rowCount, ok := b.issuesColumnRowCount[column]
+		if !ok {
+			continue
+		}
+		if rowCount > 0 {
+			b.cursorX = column
+			// ensure Y within bounds of column
+			b.cursorY = app.MinInt(b.cursorY, rowCount-1)
+			b.refreshHighlightedIssue()
+			return
+		}
 	}
-	b.scrollY = 0
 }
 
 func (b *boardView) handleActions() {
@@ -474,12 +471,23 @@ func (b *boardView) pointCursorTo(issueId string) {
 
 func (b *boardView) refreshIssuesRows() {
 	rows := map[int]int{}
+	// reset maps as they may be stale after filter
+	b.issuesColumnRowCount = map[int]int{}
+	b.issuesRow = map[string]int{}
+	b.issuesColumn = map[string]int{}
+
 	for _, issue := range b.issues {
 		column := b.statusesColumnsMap[issue.Fields.Status.Id]
 		y := rows[column] + 1
 		b.issuesRow[issue.Id] = y
 		b.issuesColumn[issue.Id] = column
 		rows[column] = y
+
+		_, ok := b.issuesColumnRowCount[column]
+		if !ok {
+			b.issuesColumnRowCount[column] = 0
+		}
+		b.issuesColumnRowCount[column] = b.issuesColumnRowCount[column] + 1
 	}
 }
 
@@ -556,6 +564,8 @@ func (b *boardView) ensureHighlightInViewport() {
 	}
 	if b.scrollY+b.cursorY > b.scrollY { // highlighted issue out of screen
 		b.scrollY = app.MaxInt(0, b.cursorY-2)
+	} else if b.scrollY > b.cursorY {
+		b.scrollY = app.MinInt(0, b.cursorY)
 	}
 }
 
@@ -645,10 +655,6 @@ func (b *boardView) applyAssigneeFilter(user *jira.User) {
 	}
 	b.refreshIssuesSummaries()
 	b.refreshIssuesRows()
-	b.cursorX = 0
-	b.cursorY = 0
-	b.scrollX = 0
-	b.scrollY = 0
 	b.setInitialCursorX()
 	b.refreshHighlightedIssue()
 }
@@ -660,10 +666,6 @@ func (b *boardView) clearAssigneeFilter() {
 
 	b.refreshIssuesSummaries()
 	b.refreshIssuesRows()
-	b.cursorX = 0
-	b.cursorY = 0
-	b.scrollX = 0
-	b.scrollY = 0
 	b.setInitialCursorX()
 	b.refreshHighlightedIssue()
 }
