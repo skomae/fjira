@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	SearchJira      = "/rest/api/2/search"
+	SearchJira      = "/rest/api/3/search/jql"
 	JiraIssueRegexp = "^[a-zA-Z0-9]{1,10}-[0-9]{1,20}$"
 )
 

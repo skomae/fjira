@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	ProjectsJira      = "/rest/api/2/project"
-	ProjectsByKeyJira = "/rest/api/2/project/%s"
+	ProjectsJira      = "/rest/api/3/project/search"
+	ProjectsByKeyJira = "/rest/api/3/project/%s"
 )
 
 type Project struct {
@@ -40,11 +40,11 @@ func (api *httpApi) FindProjects() ([]Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	var projects []Project
+	var projects searchProjectsResponse
 	if err := json.Unmarshal(response, &projects); err != nil {
 		return nil, err
 	}
-	return projects, nil
+	return projects.Values, nil
 }
 
 func (api *httpApi) FindProject(projectKey string) (*Project, error) {
