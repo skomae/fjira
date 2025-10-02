@@ -29,7 +29,7 @@ func TestNewProjectsSearchView(t *testing.T) {
 			app.CreateNewAppWithScreen(screen)
 			api := jira.NewJiraApiMock(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(200)
-				_, _ = w.Write([]byte(`{"values":[{"id": "1", "name": "Test", "key": "TEST"}, {"id": "2", "name": "Fjira", "key":"FJIR"}]}`))
+				_, _ = w.Write([]byte(`[{"id": "1", "name": "Test", "key": "TEST"}, {"id": "2", "name": "Fjira", "key":"FJIR"}]`))
 			})
 			view := NewProjectsSearchView(api).(*searchProjectsView)
 
