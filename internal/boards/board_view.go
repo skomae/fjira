@@ -2,12 +2,13 @@ package boards
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/mk-5/fjira/internal/app"
 	"github.com/mk-5/fjira/internal/jira"
 	"github.com/mk-5/fjira/internal/ui"
 	"github.com/mk-5/fjira/internal/users"
-	"strings"
 )
 
 const (
@@ -210,12 +211,7 @@ func (b *boardView) Init() {
 	if b.assigneeFilter != nil {
 		b.applyAssigneeFilter(b.assigneeFilter)
 	} else {
-		b.issues = make([]jira.Issue, len(b.allIssues))
-		copy(b.issues, b.allIssues)
-		b.refreshIssuesSummaries()
-		b.refreshIssuesRows()
-		b.setInitialCursorX()
-		b.refreshHighlightedIssue()
+		b.clearAssigneeFilter()
 	}
 	app.GetApp().Loading(false)
 	go b.handleActions()
@@ -255,13 +251,13 @@ func (b *boardView) HandleKeyEvent(ev *tcell.EventKey) {
 	} else {
 		b.selectedIssueBottomBar.HandleKeyEvent(ev)
 	}
-	if ev.Key() == tcell.KeyEnter {
-		// If not in edit/move mode, open issue detail view
-		if !b.issueSelected && b.highlightedIssue != nil && b.highlightedIssue.Id != "" {
-			app.GoTo("issue", b.highlightedIssue.Id, b.reopen, b.api)
-			return
-		}
-	}
+	// if ev.Key() == tcell.KeyEnter {
+	// 	// If not in edit/move mode, open issue detail view
+	// 	if !b.issueSelected && b.highlightedIssue != nil && b.highlightedIssue.Id != "" {
+	// 		app.GoTo("issue", b.highlightedIssue.Id, b.reopen, b.api)
+	// 		return
+	// 	}
+	// }
 	if ev.Key() == tcell.KeyRight || ev.Rune() == vimRight {
 		b.moveCursorRight()
 	}
@@ -340,9 +336,7 @@ func (b *boardView) handleActions() {
 		case action := <-b.bottomBar.Action:
 			switch action {
 			case ui.ActionSelect:
-				if b.highlightedIssue != nil && b.highlightedIssue.Id != "" {
-					app.GoTo("issue", b.highlightedIssue.Id, b.reopen, b.api)
-				}
+				b.issueSelected = true
 			case ui.ActionSearchByAssignee:
 				b.runSelectAssigneeFilter()
 				return // Stop this action handler
@@ -574,9 +568,9 @@ func (b *boardView) applyAssigneeFilter(user *jira.User) {
 			if assignee.DisplayName == "" {
 				b.issues = append(b.issues, issue)
 			}
-		} else if assignee.AccountId == user.AccountId {
+		} else if user.AccountId != "" && user.AccountId == assignee.AccountId {
 			b.issues = append(b.issues, issue)
-		} else if assignee.DisplayName == user.DisplayName {
+		} else if user.DisplayName == assignee.DisplayName {
 			b.issues = append(b.issues, issue)
 		}
 	}
