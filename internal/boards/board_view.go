@@ -2,12 +2,13 @@ package boards
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/mk-5/fjira/internal/app"
 	"github.com/mk-5/fjira/internal/jira"
 	"github.com/mk-5/fjira/internal/ui"
 	"github.com/mk-5/fjira/internal/users"
-	"strings"
 )
 
 const (
@@ -210,12 +211,7 @@ func (b *boardView) Init() {
 	if b.assigneeFilter != nil {
 		b.applyAssigneeFilter(b.assigneeFilter)
 	} else {
-		b.issues = make([]jira.Issue, len(b.allIssues))
-		copy(b.issues, b.allIssues)
-		b.refreshIssuesSummaries()
-		b.refreshIssuesRows()
-		b.setInitialCursorX()
-		b.refreshHighlightedIssue()
+		b.clearAssigneeFilter()
 	}
 	app.GetApp().Loading(false)
 	go b.handleActions()
@@ -255,13 +251,13 @@ func (b *boardView) HandleKeyEvent(ev *tcell.EventKey) {
 	} else {
 		b.selectedIssueBottomBar.HandleKeyEvent(ev)
 	}
-	if ev.Key() == tcell.KeyEnter {
-		// If not in edit/move mode, open issue detail view
-		if !b.issueSelected && b.highlightedIssue != nil && b.highlightedIssue.Id != "" {
-			app.GoTo("issue", b.highlightedIssue.Id, b.reopen, b.api)
-			return
-		}
-	}
+	// if ev.Key() == tcell.KeyEnter {
+	// 	// If not in edit/move mode, open issue detail view
+	// 	if !b.issueSelected && b.highlightedIssue != nil && b.highlightedIssue.Id != "" {
+	// 		app.GoTo("issue", b.highlightedIssue.Id, b.reopen, b.api)
+	// 		return
+	// 	}
+	// }
 	if ev.Key() == tcell.KeyRight || ev.Rune() == vimRight {
 		b.moveCursorRight()
 	}
@@ -300,10 +296,7 @@ func (b *boardView) moveCursorRight() {
 	// no issues in a column; jump to next available
 	for column := b.cursorX + 1; column < len(b.columns); column++ {
 		rowCount, ok := b.issuesColumnRowCount[column]
-		if !ok {
-			continue
-		}
-		if rowCount > 0 {
+		if ok && rowCount > 0 {
 			b.cursorX = column
 			// ensure Y within bounds of column
 			b.cursorY = app.MinInt(b.cursorY, rowCount-1)
@@ -326,10 +319,7 @@ func (b *boardView) moveCursorLeft() {
 	// no issues in a column; jump to next available
 	for column := b.cursorX - 1; column >= 0; column-- {
 		rowCount, ok := b.issuesColumnRowCount[column]
-		if !ok {
-			continue
-		}
-		if rowCount > 0 {
+		if ok && rowCount > 0 {
 			b.cursorX = column
 			// ensure Y within bounds of column
 			b.cursorY = app.MinInt(b.cursorY, rowCount-1)
@@ -346,9 +336,7 @@ func (b *boardView) handleActions() {
 		case action := <-b.bottomBar.Action:
 			switch action {
 			case ui.ActionSelect:
-				if b.highlightedIssue != nil && b.highlightedIssue.Id != "" {
-					app.GoTo("issue", b.highlightedIssue.Id, b.reopen, b.api)
-				}
+				b.issueSelected = true
 			case ui.ActionSearchByAssignee:
 				b.runSelectAssigneeFilter()
 				return // Stop this action handler
@@ -494,7 +482,7 @@ func (b *boardView) ensureHighlightInViewport() {
 	if b.highlightedIssue == nil {
 		return
 	}
-	if b.cursorX == 0 {
+	if b.scrollX > (b.cursorX * b.columnSize) {
 		b.scrollX = 0
 	} else if b.scrollX+(b.cursorX*b.columnSize)+b.columnSize > b.screenX { // highlighted issue out of screen
 		b.scrollX = app.MaxInt(0, (b.cursorX-2)*b.columnSize)
@@ -502,7 +490,7 @@ func (b *boardView) ensureHighlightInViewport() {
 	if b.scrollY+b.cursorY > b.scrollY { // highlighted issue out of screen
 		b.scrollY = app.MaxInt(0, b.cursorY-2)
 	} else if b.scrollY > b.cursorY {
-		b.scrollY = app.MinInt(0, b.cursorY)
+		b.scrollY = 0
 	}
 }
 
@@ -580,14 +568,10 @@ func (b *boardView) applyAssigneeFilter(user *jira.User) {
 			if assignee.DisplayName == "" {
 				b.issues = append(b.issues, issue)
 			}
-		} else {
-			if user.AccountId != "" {
-				if assignee.AccountId == user.AccountId {
-					b.issues = append(b.issues, issue)
-				}
-			} else if assignee.DisplayName == user.DisplayName {
-				b.issues = append(b.issues, issue)
-			}
+		} else if user.AccountId != "" && user.AccountId == assignee.AccountId {
+			b.issues = append(b.issues, issue)
+		} else if user.DisplayName == assignee.DisplayName {
+			b.issues = append(b.issues, issue)
 		}
 	}
 	b.refreshIssuesSummaries()
