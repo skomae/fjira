@@ -2,6 +2,7 @@ package boards
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
@@ -245,13 +246,22 @@ func (b *boardView) HandleKeyEvent(ev *tcell.EventKey) {
 		b.moveCursorLeft()
 	}
 	if ev.Key() == tcell.KeyUp || ev.Rune() == vimUp {
-		b.cursorY = app.MaxInt(0, b.cursorY-1)
-		b.refreshHighlightedIssue()
+		if b.columnHasVisibleIssues(b.cursorX) {
+			newY := b.findNextIssuePosition(-1)
+			if newY != b.cursorY {
+				b.cursorY = newY
+				b.refreshHighlightedIssue()
+			}
+		}
 	}
 	if ev.Key() == tcell.KeyDown || ev.Rune() == vimDown {
-		// TODO - get number of issues in column
-		b.cursorY = app.MinInt(1000, b.cursorY+1)
-		b.refreshHighlightedIssue()
+		if b.columnHasVisibleIssues(b.cursorX) {
+			newY := b.findNextIssuePosition(1)
+			if newY != b.cursorY {
+				b.cursorY = newY
+				b.refreshHighlightedIssue()
+			}
+		}
 	}
 }
 
@@ -314,37 +324,100 @@ func (b *boardView) drawColumnsHeaders(screen tcell.Screen) {
 	}
 }
 
+func (b *boardView) columnHasVisibleIssues(column int) bool {
+	for _, issue := range b.issues {
+		if b.issuesColumn[issue.Id] == column {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *boardView) getIssuePositionsInColumn(column int) []int {
+	positions := make([]int, 0)
+	for _, issue := range b.issues {
+		if b.issuesColumn[issue.Id] == column {
+			positions = append(positions, b.issuesRow[issue.Id]-1)
+		}
+	}
+	sort.Ints(positions)
+	return positions
+}
+
+func (b *boardView) findNextIssuePosition(direction int) int {
+	positions := b.getIssuePositionsInColumn(b.cursorX)
+	if len(positions) == 0 {
+		return b.cursorY
+	}
+	if direction > 0 {
+		for _, pos := range positions {
+			if pos > b.cursorY {
+				return pos
+			}
+		}
+		return positions[len(positions)-1]
+	}
+	for i := len(positions) - 1; i >= 0; i-- {
+		if positions[i] < b.cursorY {
+			return positions[i]
+		}
+	}
+	return positions[0]
+}
+
+func (b *boardView) findNextValidColumn(startColumn, direction int) int {
+	currentColumn := startColumn
+	for i := 0; i < len(b.columns); i++ {
+		currentColumn += direction
+		if currentColumn < 0 || currentColumn >= len(b.columns) {
+			return -1
+		}
+		if b.columnHasVisibleIssues(currentColumn) {
+			return currentColumn
+		}
+	}
+	return -1
+}
+
 func (b *boardView) moveCursorRight() {
-	if b.cursorX+1 >= len(b.columns) {
+	nextColumn := b.findNextValidColumn(b.cursorX, 1)
+	if nextColumn == -1 {
 		return
 	}
-	b.cursorX = app.MinInt(len(b.columns)-1, b.cursorX+1)
-	b.cursorY = 0
+	b.cursorX = nextColumn
+	positions := b.getIssuePositionsInColumn(nextColumn)
+	if len(positions) > 0 {
+		b.cursorY = positions[0]
+	} else {
+		b.cursorY = 0
+	}
 	if b.issueSelected {
 		b.moveIssue(b.highlightedIssue, 1)
 		return
 	}
-	// no issues in a column
-	if f := b.refreshHighlightedIssue(); !f {
-		b.moveCursorRight()
+	if !b.refreshHighlightedIssue() {
 		return
 	}
 	b.scrollY = 0
 }
 
 func (b *boardView) moveCursorLeft() {
-	if b.cursorX-1 < 0 {
+	nextColumn := b.findNextValidColumn(b.cursorX, -1)
+	if nextColumn == -1 {
 		return
 	}
-	b.cursorX = app.MaxInt(0, b.cursorX-1)
-	b.cursorY = 0
+	b.cursorX = nextColumn
+	positions := b.getIssuePositionsInColumn(nextColumn)
+	if len(positions) > 0 {
+		b.cursorY = positions[0]
+	} else {
+		b.cursorY = 0
+	}
 	if b.issueSelected {
 		b.moveIssue(b.highlightedIssue, -1)
 		return
 	}
-	// no issues in a column
-	if f := b.refreshHighlightedIssue(); !f {
-		b.moveCursorLeft()
+	if !b.refreshHighlightedIssue() {
 		return
 	}
 	b.scrollY = 0
@@ -415,6 +488,9 @@ func (b *boardView) pointCursorTo(issueId string) {
 }
 
 func (b *boardView) refreshIssuesRows() {
+	// Reset so filtered-out issues don't linger from a prior pass.
+	b.issuesRow = map[string]int{}
+	b.issuesColumn = map[string]int{}
 	rows := map[int]int{}
 	for _, issue := range b.issues {
 		column := b.statusesColumnsMap[issue.Fields.Status.Id]
@@ -426,6 +502,8 @@ func (b *boardView) refreshIssuesRows() {
 }
 
 func (b *boardView) refreshIssuesSummaries() {
+	// Reset so filtered-out issues don't linger from a prior pass.
+	b.issuesSummaries = map[string]string{}
 	for _, issue := range b.issues {
 		b.issuesSummaries[issue.Id] = fmt.Sprintf("%s %s", issue.Key, issue.Fields.Summary)
 	}
@@ -435,11 +513,18 @@ func (b *boardView) setInitialCursorX() {
 	if len(b.issuesColumn) == 0 {
 		return
 	}
-	b.cursorX = len(b.columnsX)
+	leftmostColumn := len(b.columnsX)
 	for _, v := range b.issuesColumn {
-		if v < b.cursorX {
-			b.cursorX = v
+		if v < leftmostColumn {
+			leftmostColumn = v
 		}
+	}
+	b.cursorX = leftmostColumn
+	positions := b.getIssuePositionsInColumn(leftmostColumn)
+	if len(positions) > 0 {
+		b.cursorY = positions[0]
+	} else {
+		b.cursorY = 0
 	}
 }
 
