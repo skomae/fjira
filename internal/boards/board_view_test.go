@@ -335,6 +335,102 @@ func Test_boardView_Init(t *testing.T) {
 	}
 }
 
+func Test_boardView_assigneeFiltering(t *testing.T) {
+	screen := tcell.NewSimulationScreen("utf-8")
+	_ = screen.Init() //nolint:errcheck
+	defer screen.Fini()
+
+	type args struct {
+		assigneeFilter string
+	}
+	tests := []struct {
+		name           string
+		args           args
+		expectedIssues int
+	}{
+		{"should filter by specific assignee", args{assigneeFilter: "John Doe"}, 2},
+		{"should show all issues when 'All' is selected", args{assigneeFilter: "All"}, 4},
+		{"should show unassigned issues", args{assigneeFilter: "Unassigned"}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app.InitTestApp(screen)
+			api := jira.NewJiraApiMock(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(200)
+				body := `{
+    "expand": "schema,names",
+    "startAt": 0,
+    "maxResults": 100,
+    "total": 4,
+    "issues": [
+        {"id": "1", "key": "TEST-1", "fields": {"summary": "First issue", "assignee": {"accountId": "john-doe", "displayName": "John Doe"}, "status": {"id": "10000"}}},
+        {"id": "2", "key": "TEST-2", "fields": {"summary": "Second issue", "assignee": {"accountId": "john-doe", "displayName": "John Doe"}, "status": {"id": "10001"}}},
+        {"id": "3", "key": "TEST-3", "fields": {"summary": "Third issue", "assignee": {"accountId": "jane-smith", "displayName": "Jane Smith"}, "status": {"id": "10002"}}},
+        {"id": "4", "key": "TEST-4", "fields": {"summary": "Fourth issue", "assignee": {"accountId": "", "displayName": ""}, "status": {"id": "10003"}}}
+    ]
+}`
+				_, _ = w.Write([]byte(body)) //nolint:errcheck
+			})
+			view := NewBoardView(&jira.Project{}, &jira.BoardConfiguration{}, "", api).(*boardView)
+			view.Init()
+
+			switch tt.args.assigneeFilter {
+			case "John Doe":
+				view.applyAssigneeFilter(&jira.User{AccountId: "john-doe", DisplayName: "John Doe"})
+			case "All":
+				view.clearAssigneeFilter()
+			case "Unassigned":
+				view.applyAssigneeFilter(&jira.User{DisplayName: "Unassigned"})
+			}
+
+			assert.Equal(t, tt.expectedIssues, len(view.issues))
+		})
+	}
+}
+
+func Test_boardView_getBoardAssignees(t *testing.T) {
+	view := &boardView{
+		allIssues: []jira.Issue{
+			{Fields: jira.IssueFields{Assignee: struct {
+				AccountId   string `json:"accountId"`
+				DisplayName string `json:"displayName"`
+			}{AccountId: "john-doe", DisplayName: "John Doe"}}},
+			{Fields: jira.IssueFields{Assignee: struct {
+				AccountId   string `json:"accountId"`
+				DisplayName string `json:"displayName"`
+			}{AccountId: "jane-smith", DisplayName: "Jane Smith"}}},
+			{Fields: jira.IssueFields{Assignee: struct {
+				AccountId   string `json:"accountId"`
+				DisplayName string `json:"displayName"`
+			}{AccountId: "", DisplayName: ""}}},
+		},
+	}
+
+	assignees := view.getBoardAssignees()
+	assert.Equal(t, 3, len(assignees)) // 2 named + 1 Unassigned
+
+	foundUnassigned := false
+	for _, a := range assignees {
+		if a.DisplayName == "Unassigned" {
+			foundUnassigned = true
+			break
+		}
+	}
+	assert.True(t, foundUnassigned)
+}
+
+func Test_boardView_assigneeFilterInitialState(t *testing.T) {
+	screen := tcell.NewSimulationScreen("utf-8")
+	_ = screen.Init() //nolint:errcheck
+	defer screen.Fini()
+	app.InitTestApp(screen)
+
+	view := NewBoardView(&jira.Project{}, &jira.BoardConfiguration{}, "", nil).(*boardView)
+	assert.NotNil(t, view)
+	assert.NotNil(t, view.bottomBar)
+	assert.Nil(t, view.assigneeFilter)
+}
+
 func Test_boardView_SetSprints_SelectsActiveSprint(t *testing.T) {
 	// given
 	view := NewBoardView(&jira.Project{}, &jira.BoardConfiguration{}, "", nil).(*boardView)

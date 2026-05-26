@@ -8,6 +8,7 @@ import (
 	"github.com/mk-5/fjira/internal/app"
 	"github.com/mk-5/fjira/internal/jira"
 	"github.com/mk-5/fjira/internal/ui"
+	"github.com/mk-5/fjira/internal/users"
 )
 
 const (
@@ -32,6 +33,8 @@ type boardView struct {
 	activeSprint           *jira.SprintItem
 	project                *jira.Project
 	issues                 []jira.Issue
+	allIssues              []jira.Issue
+	assigneeFilter         *jira.User
 	statusesColumnsMap     map[string]int
 	columnStatusesMap      map[int][]string
 	columnsX               map[int]int
@@ -79,6 +82,7 @@ func NewBoardView(project *jira.Project, boardConfiguration *jira.BoardConfigura
 	bottomBar := ui.CreateBottomLeftBar()
 	bottomBar.AddItem(ui.CreateArrowsNavigateItem())
 	bottomBar.AddItem(ui.CreateSelectItem())
+	bottomBar.AddItem(ui.NewAssigneeFilterBarItem())
 	bottomBar.AddItem(ui.NewOpenBarItem())
 	bottomBar.AddItem(ui.NewCancelBarItem())
 	selectedIssueBottomBar := ui.CreateBottomLeftBar()
@@ -184,6 +188,11 @@ func (b *boardView) Resize(screenX, screenY int) {
 func (b *boardView) Init() {
 	app.GetApp().Loading(true)
 	b.issues, _ = b.fetchIssues()
+	b.allIssues = make([]jira.Issue, len(b.issues))
+	copy(b.allIssues, b.issues)
+	if b.assigneeFilter != nil {
+		b.applyAssigneeFilter(b.assigneeFilter)
+	}
 	b.refreshIssuesSummaries()
 	b.refreshIssuesRows()
 	b.setInitialCursorX()
@@ -342,6 +351,9 @@ func (b *boardView) handleActions() {
 			switch action {
 			case ui.ActionSelect:
 				b.issueSelected = true
+			case ui.ActionSearchByAssignee:
+				b.runSelectAssigneeFilter()
+				return
 			case ui.ActionCancel:
 				if b.goBackFn != nil {
 					b.goBackFn()
@@ -488,4 +500,96 @@ func centerString(str string, width int) string {
 	}
 	spaces := int(float64(width-len(str)) / 2)
 	return strings.Repeat(" ", spaces) + str + strings.Repeat(" ", width-(spaces+len(str)))
+}
+
+func (b *boardView) runSelectAssigneeFilter() {
+	app.GetApp().ClearNow()
+	app.GetApp().Loading(true)
+	assignees := b.getBoardAssignees()
+	assignees = append(assignees, jira.User{DisplayName: ui.MessageAll})
+	assigneeStrings := users.FormatJiraUsers(assignees)
+	fuzzyFind := app.NewFuzzyFind(ui.MessageSelectUser, assigneeStrings)
+	app.GetApp().SetView(fuzzyFind)
+	app.GetApp().Loading(false)
+	if user := <-fuzzyFind.Complete; true {
+		app.GetApp().ClearNow()
+		if user.Index >= 0 && len(assignees) > 0 {
+			selectedUser := &assignees[user.Index]
+			if selectedUser.DisplayName == ui.MessageAll {
+				b.clearAssigneeFilter()
+			} else {
+				b.applyAssigneeFilter(selectedUser)
+			}
+		}
+		b.reopen()
+		go b.handleActions()
+	}
+}
+
+func (b *boardView) getBoardAssignees() []jira.User {
+	assigneeNames := make(map[string]struct{})
+	hasUnassigned := false
+	for _, issue := range b.allIssues {
+		assignee := issue.Fields.Assignee
+		if assignee.DisplayName != "" {
+			assigneeNames[assignee.DisplayName] = struct{}{}
+		} else {
+			hasUnassigned = true
+		}
+	}
+	filtered := make([]jira.User, 0, len(assigneeNames)+1)
+	for name := range assigneeNames {
+		filtered = append(filtered, jira.User{
+			DisplayName: name,
+			Name:        name,
+			Key:         name,
+		})
+	}
+	if hasUnassigned {
+		filtered = append(filtered, jira.User{DisplayName: ui.MessageUnassigned})
+	}
+	return filtered
+}
+
+func (b *boardView) applyAssigneeFilter(user *jira.User) {
+	b.assigneeFilter = user
+	b.issues = make([]jira.Issue, 0)
+	for _, issue := range b.allIssues {
+		assignee := issue.Fields.Assignee
+		if user.DisplayName == ui.MessageUnassigned {
+			if assignee.DisplayName == "" {
+				b.issues = append(b.issues, issue)
+			}
+			continue
+		}
+		if user.AccountId != "" {
+			if assignee.AccountId == user.AccountId {
+				b.issues = append(b.issues, issue)
+			}
+		} else if assignee.DisplayName == user.DisplayName {
+			b.issues = append(b.issues, issue)
+		}
+	}
+	b.refreshIssuesSummaries()
+	b.refreshIssuesRows()
+	b.cursorX = 0
+	b.cursorY = 0
+	b.scrollX = 0
+	b.scrollY = 0
+	b.setInitialCursorX()
+	b.refreshHighlightedIssue()
+}
+
+func (b *boardView) clearAssigneeFilter() {
+	b.assigneeFilter = nil
+	b.issues = make([]jira.Issue, len(b.allIssues))
+	copy(b.issues, b.allIssues)
+	b.refreshIssuesSummaries()
+	b.refreshIssuesRows()
+	b.cursorX = 0
+	b.cursorY = 0
+	b.scrollX = 0
+	b.scrollY = 0
+	b.setInitialCursorX()
+	b.refreshHighlightedIssue()
 }
