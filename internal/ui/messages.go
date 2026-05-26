@@ -74,6 +74,7 @@ const (
 	MessageNavigate                  = "Navigate "
 	MessageMoveIssue                 = "Move issue "
 	MessageSelect                    = "Select "
+	MessageMove                      = "Move "
 	MessageUnselect                  = "Unselect "
 	MessageNew                       = "New "
 	MessageDelete                    = "Delete "

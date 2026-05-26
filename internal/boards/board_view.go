@@ -81,7 +81,7 @@ func NewBoardView(project *jira.Project, boardConfiguration *jira.BoardConfigura
 	}
 	bottomBar := ui.CreateBottomLeftBar()
 	bottomBar.AddItem(ui.CreateArrowsNavigateItem())
-	bottomBar.AddItem(ui.CreateSelectItem())
+	bottomBar.AddItem(ui.NewMoveIssueBarItem())
 	bottomBar.AddItem(ui.NewAssigneeFilterBarItem())
 	bottomBar.AddItem(ui.NewOpenBarItem())
 	bottomBar.AddItem(ui.NewCancelBarItem())
@@ -224,6 +224,10 @@ func (b *boardView) SetGoBackFn(f func()) {
 
 func (b *boardView) HandleKeyEvent(ev *tcell.EventKey) {
 	if app.GetApp().IsLoading() {
+		return
+	}
+	if ev.Key() == tcell.KeyEnter && !b.issueSelected && b.highlightedIssue != nil && b.highlightedIssue.Id != "" {
+		app.GoTo("issue", b.highlightedIssue.Id, b.reopen, b.api)
 		return
 	}
 	if !b.issueSelected {

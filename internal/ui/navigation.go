@@ -221,6 +221,18 @@ func NewAssigneeFilterBarItem() *app.ActionBarItem {
 	}
 }
 
+func NewMoveIssueBarItem() *app.ActionBarItem {
+	return &app.ActionBarItem{
+		Id:          int(ActionSelect),
+		Text1:       MessageMove,
+		Text2:       "[m]",
+		Text1Style:  bottomBarItemDefaultStyle(),
+		Text2Style:  bottomBarActionBarKeyBold(),
+		TriggerKey:  -1,
+		TriggerRune: 'm',
+	}
+}
+
 func bottomBarItemDefaultStyle() tcell.Style {
 	return app.DefaultStyle().Background(app.Color("navigation.bottom.background")).Foreground(app.Color("navigation.bottom.foreground1"))
 }
