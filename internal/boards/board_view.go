@@ -61,6 +61,9 @@ type boardView struct {
 }
 
 func NewBoardView(project *jira.Project, boardConfiguration *jira.BoardConfiguration, filterJQL string, api jira.Api) app.View {
+	if boardConfiguration != nil {
+		app.SetLastViewedBoardID(boardConfiguration.Id)
+	}
 	col := 0
 	statusesColumnsMap := map[string]int{}
 	columnStatusesMap := map[int][]string{}
