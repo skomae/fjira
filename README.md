@@ -29,53 +29,119 @@ before.
 - **Direct CLI Access:** Access Jira issues directly from the command line.
 - **Cross-Platform Compatibility:** Works seamlessly on macOS, Linux, and Windows.
 
+## Improvements over upstream
+
+This fork builds on [mk-5/fjira](https://github.com/mk-5/fjira) with
+a focus on **board navigation, in-app editing, and Atlassian Cloud
+compatibility**. Each item below is a single commit (or small group)
+on top of upstream `master`. Several are good candidates for
+upstream PRs; the rest are personal-fit features.
+
+### Board view
+
+- **`--board=<id>` CLI arg** — jump straight to a board view from
+  the shell. `fjira --board=15391`. The fork remembers the last
+  board you viewed and prints its id on shutdown so the next launch
+  is trivially `fjira --board=$(...)`.
+- **F2 assignee filter** — press F2 on a board view to filter
+  visible issues by assignee (fuzzy-find over assignees already
+  loaded on the board). Selecting "All" clears the filter.
+- **Enter opens issue detail; `m` enters move mode** — Enter is the
+  universal "drill in" everywhere else in fjira, so the board view
+  now matches. The original "select an issue and move it across
+  columns" behavior is reachable via the `m` rune.
+- **Issue-aware navigation** — arrow keys skip empty columns and
+  snap to actual issue rows rather than walking through empty
+  space. Up/Down moves between issues in the current column;
+  Left/Right jumps to the first issue of the next non-empty column.
+- **Faster `--board` startup** — `openBoardDirect` passes the
+  already-fetched `BoardConfiguration` through to the goto handler
+  so it doesn't refetch. `GetFilter` is deferred to when actually
+  needed (kanban / no active sprint), saving an unconditional 8s
+  round trip on scrum boards.
+- **Bug fixes** — board scrolling crash when paging past the last
+  column; first column not scrolling back into view after navigating
+  right then left; F2 filter being silently cleared on `Init` re-entry;
+  100% CPU spin from a busy-wait `default:` clause in `handleActions`;
+  concurrent-map-write race in `app.Color()` (now `sync.Once`).
+
+### Issues list
+
+- **Numeric query expands to issue-key prefix match** — when a
+  project is selected and the query is purely numeric, the search
+  uses `key ~ "PROJ-N*"` directly. Typing `53` in COINS matches
+  COINS-53, COINS-530–539, COINS-5300, etc. Doesn't false-match
+  COINS-153 or descriptions containing "53".
+- **F7/F8 exclude-status filter** — F7 stacks status exclusions
+  (multi-select), F8 (only visible while exclusions exist) clears
+  them all. Current excludes show in the top bar as
+  `Exclude Status: -Done, -Won't Fix`.
+- **F6 Create Issue** — F6 from the board, issues list, or issue
+  detail opens Jira's create-issue modal in your browser with
+  project (and board, where applicable) context pre-populated.
+- **FuzzyFind opt-in "clear on Esc"** — for the issues fuzzy-find
+  only, first Esc clears the query (typo correction without losing
+  project context). Second Esc on empty query still backs out.
+  Ctrl-C still exits immediately. Project / workspace pickers are
+  unaffected.
+
+### Issue detail
+
+- **PgUp / PgDn scrolling** — page through long descriptions or
+  comment threads; complements the existing Up/Down/Tab/Backtab
+  one-line scrolling.
+- **`d` edits the description in-app** — opens a text-writer modal
+  pre-populated with the current description. F1 saves via a new
+  `DoUpdateDescription` API method that PUTs to
+  `/rest/api/2/issue/<id>`. Esc cancels.
+- **Text writer cursor positioning** — the editor is now a proper
+  in-place editor with arrow-key navigation, Home/End, Shift
+  modifiers for larger jumps, Delete/Backspace at cursor, mid-text
+  insertion. Useful for both descriptions and comments.
+
+### Atlassian Cloud compatibility
+
+- **Bounded JQL default** — Atlassian Cloud's new
+  `/rest/api/3/search/jql` endpoint rejects unbounded queries.
+  When no project/status/user/label/query is set, fjira now falls
+  back to `created >= -30d ORDER BY status` instead of emitting
+  an empty restriction set that 400s. On-prem Server still works
+  identically.
+- **Expired-token hint** — Atlassian Cloud returns `200` + empty
+  project list for invalid/expired API tokens rather than `401`.
+  When the projects list is empty and the workspace URL is a
+  `*.atlassian.net` host, the flash hint points users at
+  `https://id.atlassian.com/manage-profile/security/api-tokens`.
+
 ## Installation
 
-### Homebrew (macOS/Linux)
+### Pre-built macOS binary (Apple Silicon)
+
+Grab `fjira` from the
+[latest release](https://github.com/skomae/fjira/releases/latest)
+and drop it on your `PATH`:
 
 ```shell
-$ brew install fjira
+curl -L -o /usr/local/bin/fjira \
+  https://github.com/skomae/fjira/releases/latest/download/fjira
+chmod +x /usr/local/bin/fjira
 ```
 
-### Linux
-
-#### Ubuntu/Snap
+The first time you run it macOS Gatekeeper will block the binary
+because it's not notarized. Right-click the file in Finder → Open
+once to whitelist it, or run:
 
 ```shell
-snap install fjira
+xattr -d com.apple.quarantine /usr/local/bin/fjira
 ```
 
-#### Deb
+### Build from source
 
-Visit [https://github.com/mk-5/fjira/releases/latest](https://github.com/mk-5/fjira/releases/latest), and grab the
-latest release version.
+Any platform with Go 1.25+ installed:
 
 ```shell
-sudo dpkg -i fjira_0.4.0_linux_amd64.deb
-```
-
-#### AUR
-
-```sh
-yay -S fjira
-```
-
-#### Binary
-
-```shell
-tar -xvzf fjira_0.4.0_Linux_x86_64.tar.gz
-cp fjira /usr/local/bin/fjira
-```
-
-### Windows
-
-```shell
-choco install fjira
-```
-
-### Build from sources
-
-```shell
+git clone https://github.com/skomae/fjira.git
+cd fjira
 make
 ./out/bin/fjira
 ```
@@ -97,6 +163,7 @@ Available Commands:
   workspace   Switch to a different workspace
 
 Flags:
+      --board int        Open a board directly from CLI (by board id)
   -h, --help             help for fjira
   -p, --project string   Open a project directly from CLI
 
@@ -220,24 +287,10 @@ Tailor the fjira color scheme to match your preferences by creating a custom `~/
 allows you to personalize the colors according to your unique style.
 Refer to the example file, located here: [colors.yml](assets/colors.yml)
 
-## Homebrew
-
-Fjira has moved from a custom Homebrew tap to Homebrew Core.
-If you previously installed Fjira using the custom tap, you’ll need to remove it before updating to the latest version:
-
-```shell
-brew untap mk-5/mk-5
-brew update
-brew upgrade fjira
-```
-
-Once untapped, you can install or upgrade Fjira from Homebrew Core as usual.
-
 ## Roadmap (TODO)
 
 - Expand Documentation
 - Create&Delete Jira Filters
-- Support Additional Linux Package Managers (Apt, AUR, YUM)
 - Introduce More Jira Features
 
 ## Motivation
