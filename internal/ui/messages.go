@@ -34,6 +34,7 @@ const (
 	MessageSelectFilter              = "Select filter or ESC to cancel"
 	MessageSearchProjectsLoading     = "Fetching projects"
 	MessageSelectProject             = "Select project or ESC to exit"
+	MessageNoProjectsTokenHint       = "No projects visible. If you expected projects, your API token may be expired. Manage tokens: https://id.atlassian.com/manage-profile/security/api-tokens"
 	MessageChangingAssigneeTo        = "Are you sure about changing %s assignee to [%s]?"
 	MessageCannotAssignUser          = "Cannot assign user %s to ticket %s. Reason: %s AccountId: %s"
 	MessageCannotAddLabel            = "Cannot add label %s to ticket %s. Reason: %s"
