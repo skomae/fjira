@@ -435,16 +435,6 @@ func (view *TextWriterView) moveCursorDownBy(steps int) {
 	}
 }
 
-// moveCursorUp moves cursor to the line above, using desired column
-func (view *TextWriterView) moveCursorUp() {
-	view.moveCursorUpBy(1)
-}
-
-// moveCursorDown moves cursor to the line below, using desired column
-func (view *TextWriterView) moveCursorDown() {
-	view.moveCursorDownBy(1)
-}
-
 // moveCursorToLineStart moves cursor to the beginning of current line
 func (view *TextWriterView) moveCursorToLineStart() {
 	cursorLine, _ := view.getCursorLineCol()
