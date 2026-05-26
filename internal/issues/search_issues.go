@@ -191,6 +191,10 @@ func (view *searchIssuesView) runIssuesFuzzyFind() {
 	if view.customJql != "" {
 		view.fuzzyFind.MarginBottom = 0
 	}
+	// Esc here should clear a non-empty query rather than back out to the
+	// projects list — typo-correction is the common case; abandoning the
+	// project is the rare one. Second Esc on an empty query still exits.
+	view.fuzzyFind.SetClearOnEsc(true)
 	a.Loading(false)
 	a.ClearNow()
 	if chosen := <-view.fuzzyFind.Complete; true {
@@ -218,9 +222,11 @@ func (view *searchIssuesView) findIssues(query string) []string {
 	// when no custom jql set
 	// when manual set dirty=true
 	// when there is more records than max
-	// when query has issue format
+	// when query has issue format (e.g. PROJ-1234)
+	// when query is numeric-only and a project is selected (we'll expand
+	//   it to PROJ-N server-side so an exact issue-key match can be found)
 	// when there is no results
-	if view.customJql == "" || len(view.issues) >= JiraFetchRecordsThreshold || len(view.issues) == 0 || view.dirty || view.queryHasIssueFormat() || query == "" {
+	if view.customJql == "" || len(view.issues) >= JiraFetchRecordsThreshold || len(view.issues) == 0 || view.dirty || view.queryHasIssueFormat() || view.queryIsNumericWithProject(query) || query == "" {
 		a.LoadingWithText(true, ui.MessageSearchIssuesLoading)
 		view.issues = view.searchForIssues(query)
 		a.Loading(false)
@@ -229,6 +235,16 @@ func (view *searchIssuesView) findIssues(query string) []string {
 
 	view.currentQuery = query
 	return FormatJiraIssues(view.issues)
+}
+
+// queryIsNumericWithProject reports whether the given query is purely numeric
+// AND a non-"All" project is currently selected — the conditions under which
+// searchForIssues expands `1234` to `PROJ-1234`.
+func (view *searchIssuesView) queryIsNumericWithProject(query string) bool {
+	if query == "" || view.project == nil || view.project.Key == "" || view.project.Key == ui.MessageAll {
+		return false
+	}
+	return issueRegExpOnlyNumeric.MatchString(query)
 }
 
 func (view *searchIssuesView) handleSearchActions() {
@@ -376,13 +392,19 @@ func (view *searchIssuesView) reopen() {
 
 func (view *searchIssuesView) searchForIssues(query string) []jira.Issue {
 	q := strings.TrimSpace(query)
-	if view.queryHasOnlyNumeric() && view.project != nil && view.project.Key != "" {
-		q = fmt.Sprintf("%s-%s", view.project.Key, q)
-	}
-	jql := BuildSearchIssuesJql(view.project, q, searchForStatus, searchForUser, searchForLabel, excludedStatuses)
-	// when custom JQL - use it instead of fuzzy query
-	if view.customJql != "" {
+	var jql string
+	switch {
+	case view.customJql != "":
+		// Custom JQL mode bypasses query construction entirely.
 		jql = view.customJql
+	case view.queryIsNumericWithProject(q):
+		// Numeric query + project selected: prefix-match issue keys.
+		// `53` against COINS matches COINS-53, COINS-537, COINS-5300, etc.
+		// JQL's `key ~ "PROJ-N*"` does a real key prefix match (not a
+		// summary text match), so `53` won't pick up COINS-153 by accident.
+		jql = fmt.Sprintf(`project=%s AND key ~ "%s-%s*" ORDER BY key DESC`, view.project.Id, view.project.Key, q)
+	default:
+		jql = BuildSearchIssuesJql(view.project, q, searchForStatus, searchForUser, searchForLabel, excludedStatuses)
 	}
 	issues, err := view.api.SearchJql(jql)
 	if err != nil {
@@ -425,10 +447,6 @@ func (view *searchIssuesView) findBoards() []jira.BoardItem {
 
 func (view *searchIssuesView) queryHasIssueFormat() bool {
 	return issueRegExp.MatchString(view.currentQuery)
-}
-
-func (view *searchIssuesView) queryHasOnlyNumeric() bool {
-	return issueRegExpOnlyNumeric.MatchString(view.currentQuery)
 }
 
 func (view *searchIssuesView) goBack() {
