@@ -24,6 +24,7 @@ const (
 	ActionSelect
 	ActionUnselect
 	ActionCreateIssue
+	ActionEditDescription
 )
 
 type NavItemConfig struct {
