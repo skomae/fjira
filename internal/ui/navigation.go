@@ -25,6 +25,8 @@ const (
 	ActionUnselect
 	ActionCreateIssue
 	ActionEditDescription
+	ActionExcludeStatus
+	ActionClearExcludedStatuses
 )
 
 type NavItemConfig struct {
@@ -231,6 +233,17 @@ func NewCreateIssueBarItem() *app.ActionBarItem {
 		Text1Style: bottomBarItemDefaultStyle(),
 		Text2Style: bottomBarActionBarKeyBold(),
 		TriggerKey: tcell.KeyF6,
+	}
+}
+
+func NewClearExcludedStatusesBarItem() *app.ActionBarItem {
+	return &app.ActionBarItem{
+		Id:         int(ActionClearExcludedStatuses),
+		Text1:      MessageClearExcludedStatuses,
+		Text2:      "[F8]",
+		Text1Style: bottomBarItemDefaultStyle(),
+		Text2Style: bottomBarActionBarKeyBold(),
+		TriggerKey: tcell.KeyF8,
 	}
 }
 
