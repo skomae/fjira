@@ -299,10 +299,10 @@ func (b *boardView) drawColumnsHeaders(screen tcell.Screen) {
 }
 
 func (b *boardView) moveCursorRight() {
-	if b.cursorX+1 >= len(b.statusesColumnsMap) {
+	if b.cursorX+1 >= len(b.columns) {
 		return
 	}
-	b.cursorX = app.MinInt(len(b.columns), b.cursorX+1)
+	b.cursorX = app.MinInt(len(b.columns)-1, b.cursorX+1)
 	b.cursorY = 0
 	if b.issueSelected {
 		b.moveIssue(b.highlightedIssue, 1)
@@ -472,7 +472,9 @@ func (b *boardView) ensureHighlightInViewport() {
 	if b.highlightedIssue == nil {
 		return
 	}
-	if b.scrollX+(b.cursorX*b.columnSize)+b.columnSize > b.screenX { // highlighted issue out of screen
+	if b.cursorX == 0 {
+		b.scrollX = 0
+	} else if b.scrollX+(b.cursorX*b.columnSize)+b.columnSize > b.screenX { // highlighted issue out of screen
 		b.scrollX = app.MaxInt(0, (b.cursorX-2)*b.columnSize)
 	}
 	if b.scrollY+b.cursorY > b.scrollY { // highlighted issue out of screen
