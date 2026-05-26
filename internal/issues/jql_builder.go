@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+// DefaultBoundedJql is used when no other restriction would be present in the
+// generated query. Atlassian Cloud's /rest/api/3/search/jql endpoint rejects
+// unbounded queries with HTTP 400 ("Unbounded JQL queries are not allowed here").
+const DefaultBoundedJql = "created >= -30d"
+
 func BuildSearchIssuesJql(project *jira.Project, query string, status *jira.IssueStatus, user *jira.User, label string) string {
 	jql := ""
 	if project != nil && project.Id != ui.MessageAll {
@@ -34,5 +39,9 @@ func BuildSearchIssuesJql(project *jira.Project, query string, status *jira.Issu
 	if query != "" && issueRegExp.MatchString(query) {
 		jql = jql + fmt.Sprintf(" OR issuekey=\"%s\"", query)
 	}
-	return fmt.Sprintf("%s %s", strings.TrimLeft(jql, " AND"), orderBy)
+	jql = strings.TrimLeft(jql, " AND")
+	if jql == "" {
+		jql = DefaultBoundedJql
+	}
+	return fmt.Sprintf("%s %s", jql, orderBy)
 }

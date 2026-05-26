@@ -23,6 +23,8 @@ func Test_buildSearchIssuesJql(t *testing.T) {
 		{"should create valid jql", args{project: &jira.Project{Id: "123"}}, "project=123 ORDER BY status"},
 		{"should create valid jql", args{project: &jira.Project{Id: "123"}, query: "abc"}, "project=123 AND summary~\"abc*\" ORDER BY status"},
 		{"should create valid jql", args{project: &jira.Project{Id: ui.MessageAll, Key: ui.MessageAll}, query: "abc"}, "summary~\"abc*\" ORDER BY status"},
+		{"should fall back to bounded predicate when no restrictions", args{project: &jira.Project{Id: ui.MessageAll, Key: ui.MessageAll}}, "created >= -30d ORDER BY status"},
+		{"should fall back to bounded predicate when project is nil", args{}, "created >= -30d ORDER BY status"},
 		{"should create valid jql", args{
 			project: &jira.Project{Id: "123"}, query: "abc", status: &jira.IssueStatus{Id: "st1"}},
 			"project=123 AND summary~\"abc*\" AND status=st1 ORDER BY status",
