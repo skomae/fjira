@@ -174,7 +174,9 @@ func (f *Fjira) openBoardDirect(boardId int, projectKey string) {
 			return
 		}
 		f.app.RunOnAppRoutine(func() {
-			app.GoTo("boards", project, boardItem, nil, f.api)
+			// Pass boardConfig through so goto.go skips its GetBoardConfiguration
+			// refetch — we already have it from the bootstrap fetch above.
+			app.GoTo("boards", project, boardItem, nil, f.api, boardConfig)
 		})
 		return
 	}

@@ -192,16 +192,27 @@ func (b *boardView) Resize(screenX, screenY int) {
 
 func (b *boardView) Init() {
 	app.GetApp().Loading(true)
-	b.issues, _ = b.fetchIssues()
-	b.allIssues = make([]jira.Issue, len(b.issues))
-	copy(b.allIssues, b.issues)
-	if b.assigneeFilter != nil {
-		b.applyAssigneeFilter(b.assigneeFilter)
+	fetched, err := b.fetchIssues()
+	if err != nil {
+		app.GetApp().Loading(false)
+		return
 	}
-	b.refreshIssuesSummaries()
-	b.refreshIssuesRows()
-	b.setInitialCursorX()
-	b.refreshHighlightedIssue()
+	if fetched == nil {
+		fetched = []jira.Issue{}
+	}
+	b.allIssues = fetched
+	if b.assigneeFilter != nil {
+		// applyAssigneeFilter populates b.issues from b.allIssues and calls
+		// the refresh helpers itself.
+		b.applyAssigneeFilter(b.assigneeFilter)
+	} else {
+		b.issues = make([]jira.Issue, len(b.allIssues))
+		copy(b.issues, b.allIssues)
+		b.refreshIssuesSummaries()
+		b.refreshIssuesRows()
+		b.setInitialCursorX()
+		b.refreshHighlightedIssue()
+	}
 	app.GetApp().Loading(false)
 	go b.handleActions()
 }
@@ -296,6 +307,15 @@ func (b *boardView) fetchIssues() ([]jira.Issue, error) {
 	var iss []jira.Issue
 	var total int32
 	var err error
+	if b.activeSprint == nil && b.filterJQL == "" && b.boardConfiguration != nil && b.boardConfiguration.Filter.Id != "" {
+		filter, ferr := b.api.GetFilter(b.boardConfiguration.Filter.Id)
+		if ferr != nil {
+			app.GetApp().Loading(false)
+			app.Error(ferr.Error())
+			return nil, ferr
+		}
+		b.filterJQL = filter.JQL
+	}
 	for len(b.issues) < maxIssuesNumber {
 		if b.activeSprint == nil {
 			iss, total, _, err = b.api.SearchJqlPageable(b.filterJQL, page, issueFetchBatchSize)
