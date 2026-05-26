@@ -87,6 +87,7 @@ func NewBoardView(project *jira.Project, boardConfiguration *jira.BoardConfigura
 	bottomBar.AddItem(ui.CreateArrowsNavigateItem())
 	bottomBar.AddItem(ui.NewMoveIssueBarItem())
 	bottomBar.AddItem(ui.NewAssigneeFilterBarItem())
+	bottomBar.AddItem(ui.NewCreateIssueBarItem())
 	bottomBar.AddItem(ui.NewOpenBarItem())
 	bottomBar.AddItem(ui.NewCancelBarItem())
 	selectedIssueBottomBar := ui.CreateBottomLeftBar()
@@ -434,6 +435,16 @@ func (b *boardView) handleActions() {
 			case ui.ActionSearchByAssignee:
 				b.runSelectAssigneeFilter()
 				return
+			case ui.ActionCreateIssue:
+				projectId := ""
+				if b.project != nil {
+					projectId = b.project.Id
+				}
+				boardId := 0
+				if b.boardConfiguration != nil {
+					boardId = b.boardConfiguration.Id
+				}
+				ui.OpenCreateIssueInBrowser(b.api, projectId, boardId)
 			case ui.ActionCancel:
 				if b.goBackFn != nil {
 					b.goBackFn()

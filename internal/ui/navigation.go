@@ -23,6 +23,7 @@ const (
 	ActionAddLabel
 	ActionSelect
 	ActionUnselect
+	ActionCreateIssue
 )
 
 type NavItemConfig struct {
@@ -218,6 +219,17 @@ func NewAssigneeFilterBarItem() *app.ActionBarItem {
 		Text1Style: bottomBarItemDefaultStyle(),
 		Text2Style: bottomBarActionBarKeyBold(),
 		TriggerKey: tcell.KeyF2,
+	}
+}
+
+func NewCreateIssueBarItem() *app.ActionBarItem {
+	return &app.ActionBarItem{
+		Id:         int(ActionCreateIssue),
+		Text1:      MessageCreateIssue,
+		Text2:      "[F6]",
+		Text1Style: bottomBarItemDefaultStyle(),
+		Text2Style: bottomBarActionBarKeyBold(),
+		TriggerKey: tcell.KeyF6,
 	}
 }
 

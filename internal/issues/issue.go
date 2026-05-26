@@ -41,6 +41,7 @@ var (
 		ui.NavItemConfig{Action: ui.ActionAssigneeChange, Text1: ui.MessageAssignUser, Text2: "[a]", Rune: 'a'},
 		ui.NavItemConfig{Action: ui.ActionComment, Text1: ui.MessageComment, Text2: "[c]", Rune: 'c'},
 		ui.NavItemConfig{Action: ui.ActionAddLabel, Text1: ui.MessageLabel, Text2: "[l]", Rune: 'l'},
+		ui.NavItemConfig{Action: ui.ActionCreateIssue, Text1: ui.MessageCreateIssue, Text2: "[F6]", Key: tcell.KeyF6},
 		ui.NavItemConfig{Action: ui.ActionOpen, Text1: ui.MessageOpen, Text2: "[o]", Rune: 'o'},
 	}
 )
@@ -192,6 +193,14 @@ func (view *issueView) handleIssueAction() {
 			return
 		case ui.ActionAddLabel:
 			app.GoTo("labels-add", view.issue, view.reopen, view.api)
+			return
+		case ui.ActionCreateIssue:
+			projectId := ""
+			if view.issue != nil {
+				projectId = view.issue.Fields.Project.Id
+			}
+			ui.OpenCreateIssueInBrowser(view.api, projectId, 0)
+			go view.handleIssueAction()
 			return
 		case ui.ActionOpen:
 			OpenIssueInBrowser(view.issue, view.api)
