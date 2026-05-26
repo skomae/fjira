@@ -182,7 +182,9 @@ func (a *App) Close() {
 	a.screen.Fini()
 	close(a.keyEvent)
 	if lastViewedBoardID != 0 {
-		fmt.Fprintf(os.Stdout, "Last viewed board id: %d\n", lastViewedBoardID)
+		// Best-effort shutdown print — if stdout is closed (rare), there's
+		// nothing useful we can do. errcheck wants the return value handled.
+		_, _ = fmt.Fprintf(os.Stdout, "Last viewed board id: %d\n", lastViewedBoardID)
 	}
 }
 

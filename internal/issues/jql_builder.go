@@ -12,7 +12,7 @@ import (
 // unbounded queries with HTTP 400 ("Unbounded JQL queries are not allowed here").
 const DefaultBoundedJql = "created >= -30d"
 
-func BuildSearchIssuesJql(project *jira.Project, query string, status *jira.IssueStatus, user *jira.User, label string) string {
+func BuildSearchIssuesJql(project *jira.Project, query string, status *jira.IssueStatus, user *jira.User, label string, excludedStatuses []*jira.IssueStatus) string {
 	jql := ""
 	if project != nil && project.Id != ui.MessageAll {
 		jql = jql + fmt.Sprintf("project=%s", project.Id)
@@ -35,6 +35,11 @@ func BuildSearchIssuesJql(project *jira.Project, query string, status *jira.Issu
 	// TODO - would be safer to check the index of inserted all message, instead of checking it like this / same for all All checks
 	if label != "" && label != ui.MessageAll {
 		jql = jql + fmt.Sprintf(" AND labels=%s", label)
+	}
+	for _, excludedStatus := range excludedStatuses {
+		if excludedStatus != nil && excludedStatus.Name != ui.MessageAll {
+			jql = jql + fmt.Sprintf(" AND status!=%s", excludedStatus.Id)
+		}
 	}
 	if query != "" && issueRegExp.MatchString(query) {
 		jql = jql + fmt.Sprintf(" OR issuekey=\"%s\"", query)

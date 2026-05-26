@@ -54,12 +54,10 @@ nfpms:
       - fjira
     scripts:
       postremove: "scripts/postremove.sh"
-    rpm:
-      signature:
-        key_file: '{{ .Env.HOME }}/.key'
-    deb:
-      signature:
-        key_file: '{{ .Env.HOME }}/.key'
+    # Upstream signs RPM and DEB packages with a GPG key at ~/.key. This fork's
+    # CI doesn't ship that key, so signing fails the goreleaser job on every
+    # PR. Drop both signature blocks until/unless we set up a fork-owned key.
+    # (Original config preserved in git history if we ever want to re-enable.)
 snapcrafts:
   -
     id: fjira

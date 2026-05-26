@@ -9,11 +9,12 @@ import (
 
 func Test_buildSearchIssuesJql(t *testing.T) {
 	type args struct {
-		project *jira.Project
-		query   string
-		status  *jira.IssueStatus
-		user    *jira.User
-		label   string
+		project          *jira.Project
+		query            string
+		status           *jira.IssueStatus
+		user             *jira.User
+		label            string
+		excludedStatuses []*jira.IssueStatus
 	}
 	tests := []struct {
 		name string
@@ -35,10 +36,18 @@ func Test_buildSearchIssuesJql(t *testing.T) {
 		},
 		{"should create valid jql", args{project: &jira.Project{Id: "123"}, label: "test"}, "project=123 AND labels=test ORDER BY status"},
 		{"should create valid jql", args{project: &jira.Project{Id: "123"}, user: &jira.User{Name: "bob"}}, "project=123 AND assignee=bob ORDER BY status"},
+		{"should exclude single status", args{
+			project: &jira.Project{Id: "123"}, excludedStatuses: []*jira.IssueStatus{{Id: "done"}}},
+			"project=123 AND status!=done ORDER BY status",
+		},
+		{"should exclude multiple statuses", args{
+			project: &jira.Project{Id: "123"}, excludedStatuses: []*jira.IssueStatus{{Id: "done"}, {Id: "wontfix"}}},
+			"project=123 AND status!=done AND status!=wontfix ORDER BY status",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, BuildSearchIssuesJql(tt.args.project, tt.args.query, tt.args.status, tt.args.user, tt.args.label), "BuildSearchIssuesJql(%v, %v, %v, %v)", tt.args.project, tt.args.query, tt.args.status, tt.args.user)
+			assert.Equalf(t, tt.want, BuildSearchIssuesJql(tt.args.project, tt.args.query, tt.args.status, tt.args.user, tt.args.label, tt.args.excludedStatuses), "BuildSearchIssuesJql(%v, %v, %v, %v)", tt.args.project, tt.args.query, tt.args.status, tt.args.user)
 		})
 	}
 }

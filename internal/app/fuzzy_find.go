@@ -30,6 +30,7 @@ type FuzzyFind struct {
 	supplierDebounce  func(f func())
 	debounceDisabled  bool
 	disableFuzzyMatch bool
+	clearOnEsc        bool // when true, Esc with non-empty query clears it instead of completing with -1
 
 	boldMatchStyle   tcell.Style
 	cursorStyle      tcell.Style
@@ -171,7 +172,16 @@ func (f *FuzzyFind) ForceUpdate() {
 
 func (f *FuzzyFind) HandleKeyEvent(ev *tcell.EventKey) {
 	if ev.Key() == tcell.KeyCtrlC || ev.Key() == tcell.KeyEscape {
-		f.Complete <- FuzzyFindResult{Index: -1, Match: ""}
+		// SetClearOnEsc(true) opt-in: first Esc with a non-empty query just
+		// clears the query (lets the user start over without leaving the
+		// view). A second Esc on an empty query still completes with -1.
+		// Ctrl-C always completes regardless — emergency-exit semantics.
+		if f.clearOnEsc && ev.Key() == tcell.KeyEscape && f.buffer.Len() > 0 {
+			f.buffer.Reset()
+			f.markAsDirty()
+		} else {
+			f.Complete <- FuzzyFindResult{Index: -1, Match: ""}
+		}
 	}
 	if ev.Key() == tcell.KeyEnter {
 		f.markAsDirty()
@@ -243,6 +253,14 @@ func (f *FuzzyFind) GetSelectedItem() string {
 
 func (f *FuzzyFind) SetDebounceDisabled(b bool) {
 	f.debounceDisabled = b
+}
+
+// SetClearOnEsc opts in to "Esc clears non-empty query, second Esc exits"
+// semantics. Default (false) keeps the immediate-exit behavior used by
+// project/workspace pickers where Esc should always back out. Ctrl-C
+// always exits regardless of this flag.
+func (f *FuzzyFind) SetClearOnEsc(b bool) {
+	f.clearOnEsc = b
 }
 
 func (f *FuzzyFind) SetDebounceMs(d time.Duration) {
