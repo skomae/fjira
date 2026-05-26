@@ -53,9 +53,12 @@ func NewTextWriterView(args *TextWriterArgs) app.View {
 	}
 
 	view := &TextWriterView{
-		bottomBar:   bottomBar,
-		text:        args.InitialText,
-		cursorPos:   len(args.InitialText), // Start cursor at end of initial text
+		bottomBar: bottomBar,
+		text:      args.InitialText,
+		// cursorPos is a rune offset, not a byte offset — must use rune count
+		// so multi-byte chars in InitialText don't push the cursor past the
+		// end of the rune slice when later code does `runes[:cursorPos]`.
+		cursorPos:   len([]rune(args.InitialText)),
 		scrollY:     0,
 		textStartY:  4, // Header at y=2, text starts at y=4
 		desiredCol:  0, // Will be updated when cursor moves
@@ -319,15 +322,13 @@ func (view *TextWriterView) HandleKeyEvent(ev *tcell.EventKey) {
 			}
 		}
 	case tcell.KeyDelete:
-		if view.cursorPos < len(view.text) {
-			// Remove character at cursor position
-			runes := []rune(view.text)
-			if view.cursorPos < len(runes) {
-				newRunes := append(runes[:view.cursorPos], runes[view.cursorPos+1:]...)
-				view.text = string(newRunes)
-				view.syncBuffer()
-				view.updateDesiredCol()
-			}
+		// cursorPos is a rune offset; compare against rune count, not byte count.
+		runes := []rune(view.text)
+		if view.cursorPos < len(runes) {
+			newRunes := append(runes[:view.cursorPos], runes[view.cursorPos+1:]...)
+			view.text = string(newRunes)
+			view.syncBuffer()
+			view.updateDesiredCol()
 		}
 	default:
 		// Handle regular character input
@@ -347,9 +348,18 @@ func (view *TextWriterView) HandleKeyEvent(ev *tcell.EventKey) {
 	view.ensureCursorVisible()
 }
 
-// insertTextAtCursor inserts text at the current cursor position
+// insertTextAtCursor inserts text at the current cursor position.
+// Belt-and-suspenders clamp: cursorPos is a rune offset, and every assignment
+// site is supposed to keep it in [0, len(runes)], but a bad initialization or
+// a future bug elsewhere shouldn't crash the editor. Clamp defensively.
 func (view *TextWriterView) insertTextAtCursor(text string) {
 	runes := []rune(view.text)
+	if view.cursorPos < 0 {
+		view.cursorPos = 0
+	}
+	if view.cursorPos > len(runes) {
+		view.cursorPos = len(runes)
+	}
 	newRunes := append(runes[:view.cursorPos], append([]rune(text), runes[view.cursorPos:]...)...)
 	view.text = string(newRunes)
 	view.cursorPos += len([]rune(text))

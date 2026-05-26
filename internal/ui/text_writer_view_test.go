@@ -222,3 +222,33 @@ func Test_fjiraTextWriterView_Update(t *testing.T) {
 		})
 	}
 }
+
+func Test_fjiraTextWriterView_InitialTextMultiByte(t *testing.T) {
+	// Regression for crash on first keystroke when InitialText contains
+	// multi-byte UTF-8 chars: cursorPos was initialized to byte length
+	// instead of rune count, then later code indexed `runes[:cursorPos]`
+	// and panicked with "slice bounds out of range".
+	tests := []struct {
+		name        string
+		initialText string
+	}{
+		{"ascii only", "hello world"},
+		{"em-dash (3-byte)", "before — after"},
+		{"smart quotes (3-byte)", "He said “hi” to her."},
+		{"emoji (4-byte)", "ship it 🚀 today"},
+		{"mixed", "café — déjà 🚀 vu"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			view := NewTextWriterView(&TextWriterArgs{InitialText: tt.initialText}).(*TextWriterView)
+			// cursorPos must be the rune count, not the byte length.
+			assert.Equal(t, len([]rune(tt.initialText)), view.cursorPos, "cursorPos should equal rune count")
+			// First keystroke previously panicked here.
+			assert.NotPanics(t, func() {
+				view.HandleKeyEvent(tcell.NewEventKey(tcell.KeyRune, 'X', tcell.ModNone))
+			})
+			// After inserting one rune, cursorPos should advance by one.
+			assert.Equal(t, len([]rune(tt.initialText))+1, view.cursorPos)
+		})
+	}
+}
