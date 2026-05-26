@@ -45,6 +45,10 @@ type FuzzyFindResult struct {
 	Match string
 }
 
+func (f *FuzzyFind) Destroy() {}
+
+func (f *FuzzyFind) Init() {}
+
 const (
 	ResultsMarginBottom     = 3
 	WriteIndicator          = "> "

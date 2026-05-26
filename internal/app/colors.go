@@ -2,21 +2,22 @@ package app
 
 import (
 	"fmt"
+	"os"
+	"sync"
+
 	"github.com/gdamore/tcell/v2"
 	os2 "github.com/mk-5/fjira/internal/os"
 	"gopkg.in/yaml.v3"
-	"os"
 )
 
 var (
-	schemeMap map[string]interface{}
-	colorsMap = map[string]tcell.Color{}
+	schemeMap    map[string]interface{}
+	colorsMap    = map[string]tcell.Color{}
+	colorsLoaded sync.Once
 )
 
 func Color(c string) tcell.Color {
-	if len(colorsMap) == 0 {
-		MustLoadColorScheme()
-	}
+	colorsLoaded.Do(func() { MustLoadColorScheme() })
 	if color, ok := colorsMap[c]; ok {
 		return color
 	}

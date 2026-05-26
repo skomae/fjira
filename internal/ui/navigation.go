@@ -23,6 +23,7 @@ const (
 	ActionAddLabel
 	ActionSelect
 	ActionUnselect
+	ActionCreateIssue
 )
 
 type NavItemConfig struct {
@@ -207,6 +208,40 @@ func NewSaveBarItem() *app.ActionBarItem {
 		Text1Style: bottomBarItemDefaultStyle(),
 		Text2Style: bottomBarActionBarKeyBold(),
 		TriggerKey: tcell.KeyF1,
+	}
+}
+
+func NewAssigneeFilterBarItem() *app.ActionBarItem {
+	return &app.ActionBarItem{
+		Id:         int(ActionSearchByAssignee),
+		Text1:      MessageByAssignee,
+		Text2:      "[F2]",
+		Text1Style: bottomBarItemDefaultStyle(),
+		Text2Style: bottomBarActionBarKeyBold(),
+		TriggerKey: tcell.KeyF2,
+	}
+}
+
+func NewCreateIssueBarItem() *app.ActionBarItem {
+	return &app.ActionBarItem{
+		Id:         int(ActionCreateIssue),
+		Text1:      MessageCreateIssue,
+		Text2:      "[F6]",
+		Text1Style: bottomBarItemDefaultStyle(),
+		Text2Style: bottomBarActionBarKeyBold(),
+		TriggerKey: tcell.KeyF6,
+	}
+}
+
+func NewMoveIssueBarItem() *app.ActionBarItem {
+	return &app.ActionBarItem{
+		Id:          int(ActionSelect),
+		Text1:       MessageMove,
+		Text2:       "[m]",
+		Text1Style:  bottomBarItemDefaultStyle(),
+		Text2Style:  bottomBarActionBarKeyBold(),
+		TriggerKey:  -1,
+		TriggerRune: 'm',
 	}
 }
 

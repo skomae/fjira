@@ -145,6 +145,24 @@ func (api *httpApi) GetBoardConfiguration(boardId int) (*BoardConfiguration, err
 	return &result, nil
 }
 
+// GetBoardProjects fetches the projects associated with a board.
+// Used when --board=<id> is supplied without --project=<key> to resolve
+// the project context for the board view.
+func (api *httpApi) GetBoardProjects(boardId int) ([]Project, error) {
+	url := fmt.Sprintf("/rest/agile/1.0/board/%d/project", boardId)
+	resultBytes, err := api.jiraRequest("GET", url, &nilParams{}, nil)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Values []Project `json:"values"`
+	}
+	if err := json.Unmarshal(resultBytes, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Values, nil
+}
+
 func (api *httpApi) GetBoardSprints(boardId int) ([]SprintItem, error) {
 	params := &GetAllSprintsQueryParams{State: "active,future"}
 	resultBytes, err := api.jiraRequest("GET", fmt.Sprintf(FindBoardSprintsUrl, boardId), params, nil)

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -11,6 +12,15 @@ import (
 	"github.com/gdamore/tcell/v2"
 	_ "github.com/gdamore/tcell/v2/encoding"
 )
+
+var lastViewedBoardID int
+
+// SetLastViewedBoardID is called by board view on construction.
+// On shutdown, fjira prints the last id to stdout for muscle-memory
+// recall — `fjira --board=$(...)` round-trips trivially.
+func SetLastViewedBoardID(id int) {
+	lastViewedBoardID = id
+}
 
 type App struct {
 	ScreenX      int
@@ -171,6 +181,9 @@ func (a *App) Close() {
 	a.screen.Show()
 	a.screen.Fini()
 	close(a.keyEvent)
+	if lastViewedBoardID != 0 {
+		fmt.Fprintf(os.Stdout, "Last viewed board id: %d\n", lastViewedBoardID)
+	}
 }
 
 func (a *App) Loading(flag bool) {

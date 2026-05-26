@@ -2,6 +2,7 @@ package fjira
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +44,7 @@ type Fjira struct {
 // CliArgs TODO - drop it, and use cobra directly
 type CliArgs struct {
 	ProjectId       string
+	BoardId         int
 	IssueKey        string
 	Workspace       string
 	WorkspaceSwitch bool
@@ -107,6 +109,10 @@ func (f *Fjira) registerGoTos() {
 
 func (f *Fjira) bootstrap(args *CliArgs) {
 	defer f.app.PanicRecover()
+	if args.BoardId != 0 {
+		f.openBoardDirect(args.BoardId, args.ProjectId)
+		return
+	}
 	if args.WorkspaceSwitch {
 		app.GoTo("workspaces-switch")
 		return
@@ -132,5 +138,57 @@ func (f *Fjira) bootstrap(args *CliArgs) {
 	time.Sleep(350 * time.Millisecond)
 	f.app.RunOnAppRoutine(func() {
 		app.GoTo("projects", f.api)
+	})
+}
+
+// openBoardDirect opens a board view directly from CLI by board ID, resolving
+// its associated project automatically when not supplied. Every failure path
+// surfaces a flash error so the user isn't left staring at an empty screen.
+func (f *Fjira) openBoardDirect(boardId int, projectKey string) {
+	boardConfig, err := f.api.GetBoardConfiguration(boardId)
+	if err != nil {
+		app.Error(fmt.Sprintf("Cannot load board %d: %s", boardId, err.Error()))
+		return
+	}
+	if boardConfig == nil {
+		app.Error(fmt.Sprintf("Board %d not found", boardId))
+		return
+	}
+	if projectKey == "" {
+		projectKey = boardConfig.Location.Key
+	}
+	boardItem := &jira.BoardItem{
+		Id:   boardConfig.Id,
+		Self: boardConfig.Self,
+		Name: boardConfig.Name,
+		Type: boardConfig.Type,
+	}
+	if projectKey != "" {
+		project, err := f.api.FindProject(projectKey)
+		if err != nil {
+			app.Error(fmt.Sprintf("Cannot load project %s: %s", projectKey, err.Error()))
+			return
+		}
+		if project == nil {
+			app.Error(fmt.Sprintf("Project %s not found", projectKey))
+			return
+		}
+		f.app.RunOnAppRoutine(func() {
+			app.GoTo("boards", project, boardItem, nil, f.api)
+		})
+		return
+	}
+	projects, err := f.api.GetBoardProjects(boardId)
+	if err != nil {
+		app.Error(fmt.Sprintf("Cannot load projects for board %d: %s", boardId, err.Error()))
+		return
+	}
+	if len(projects) == 0 {
+		app.Error(fmt.Sprintf("Board %d has no associated projects", boardId))
+		return
+	}
+	project := &projects[0]
+	f.app.RunOnAppRoutine(func() {
+		app.GoTo("boards", project, boardItem, nil, f.api)
 	})
 }

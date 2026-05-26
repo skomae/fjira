@@ -46,6 +46,7 @@ var (
 		ui.NavItemConfig{Action: ui.ActionSearchByAssignee, Text1: ui.MessageByAssignee, Text2: "[F2]", Key: tcell.KeyF2},
 		ui.NavItemConfig{Action: ui.ActionSearchByLabel, Text1: ui.MessageByLabel, Text2: "[F3]", Key: tcell.KeyF3},
 		ui.NavItemConfig{Action: ui.ActionBoards, Text1: ui.MessageBoards, Text2: "[F4]", Key: tcell.KeyF4},
+		ui.NavItemConfig{Action: ui.ActionCreateIssue, Text1: ui.MessageCreateIssue, Text2: "[F6]", Key: tcell.KeyF6},
 	}
 )
 
@@ -203,6 +204,14 @@ func (view *searchIssuesView) handleSearchActions() {
 			view.runSelectLabel()
 		case ui.ActionBoards:
 			view.runSelectBoard()
+		case ui.ActionCreateIssue:
+			projectId := ""
+			if view.project != nil {
+				projectId = view.project.Id
+			}
+			ui.OpenCreateIssueInBrowser(view.api, projectId, 0)
+			go view.runIssuesFuzzyFind()
+			go view.handleSearchActions()
 		}
 	}
 }
