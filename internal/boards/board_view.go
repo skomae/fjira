@@ -358,7 +358,6 @@ func (b *boardView) handleActions() {
 			case ui.ActionOpen:
 				app.GoTo("issue", b.highlightedIssue.Id, b.reopen, b.api)
 			}
-		default: //nolint
 		}
 	}
 }
