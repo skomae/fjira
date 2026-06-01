@@ -31,7 +31,13 @@ const (
 
 func NewActionBar(vAlign int, hAlign int) *ActionBar {
 	return &ActionBar{
-		Action:  make(chan ActionBarAction),
+		// Buffered by 1 so HandleKeyEvent's `Action <- ...` send never
+		// blocks the caller permanently. Verified via pprof on a real fjira
+		// session: with an unbuffered channel + search_issues.go's
+		// `go bottomBar.HandleKeyEvent(ev)` pattern, three goroutines were
+		// stuck on this send for 67+ minutes after only light usage.
+		// See PR for the smoking-gun stack trace.
+		Action:  make(chan ActionBarAction, 1),
 		Y:       0,
 		screenX: 0,
 		screenY: 0,

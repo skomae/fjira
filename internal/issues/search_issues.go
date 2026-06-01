@@ -178,7 +178,12 @@ func (view *searchIssuesView) Resize(screenX, screenY int) {
 }
 
 func (view *searchIssuesView) HandleKeyEvent(ev *tcell.EventKey) {
-	go view.bottomBar.HandleKeyEvent(ev) // TODO - do not trigger new routine
+	// Inline call (was `go view.bottomBar.HandleKeyEvent(ev)` per the TODO):
+	// safe now that ActionBar.Action is buffered. The previous goroutine
+	// spawn-per-keystroke was a goroutine leak — pprof on a running
+	// session showed multiple ActionBar.HandleKeyEvent goroutines stuck on
+	// `chan send` for 60+ minutes.
+	view.bottomBar.HandleKeyEvent(ev)
 	if view.fuzzyFind != nil {
 		view.fuzzyFind.HandleKeyEvent(ev)
 	}
