@@ -3,6 +3,11 @@ package commands
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	_ "net/http/pprof" // registers /debug/pprof/* handlers on http.DefaultServeMux
+	"os"
 	"regexp"
 
 	"github.com/mk-5/fjira/internal/fjira"
@@ -65,6 +70,9 @@ Say goodbye to manual searching and hello to increased productivity with fjira.`
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if debug, _ := cmd.Flags().GetBool("debug-pprof"); debug {
+				startPprofServer()
+			}
 			// run Issue command if issueKey provided via cli argument
 			if len(args) == 1 {
 				issueRegExp := regexp.MustCompile("^[A-Za-z0-9]{2,10}-[0-9]+$")
@@ -91,5 +99,28 @@ Say goodbye to manual searching and hello to increased productivity with fjira.`
 	cmd.AddCommand(&cobra.Command{Use: "", Short: "Open a fuzzy finder for projects as a default action"})
 	cmd.Flags().StringP("project", "p", "", "Open a project directly from CLI")
 	cmd.Flags().Int("board", 0, "Open a board directly from CLI (by board id)")
+	cmd.Flags().Bool("debug-pprof", false, "Start a pprof HTTP server on 127.0.0.1 (auto-picked port, printed to stderr). For debugging only.")
 	return cmd
+}
+
+// startPprofServer binds an HTTP listener on a free localhost port and serves
+// the standard net/http/pprof endpoints (/debug/pprof/goroutine, /heap,
+// /profile, /trace, etc.). Address is written to stderr and to
+// $TMPDIR/fjira-pprof.addr so the URL survives the terminal alt-screen redraw.
+func startPprofServer() {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fjira: pprof listener failed: %v\n", err)
+		return
+	}
+	addr := listener.Addr().String()
+	url := fmt.Sprintf("http://%s/debug/pprof/", addr)
+	fmt.Fprintf(os.Stderr, "fjira pprof: %s\n", url)
+	// Best-effort: also drop the URL into a temp file so it's findable after
+	// the TUI redraws over the startup message.
+	tmpDir := os.TempDir()
+	_ = os.WriteFile(fmt.Sprintf("%s/fjira-pprof.addr", tmpDir), []byte(url+"\n"), 0o644)
+	go func() {
+		_ = http.Serve(listener, nil)
+	}()
 }
