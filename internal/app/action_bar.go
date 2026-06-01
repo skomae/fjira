@@ -123,12 +123,32 @@ func (b *ActionBar) Update() {
 func (b *ActionBar) HandleKeyEvent(ev *tcell.EventKey) {
 	for _, item := range b.items {
 		if item.TriggerRune > 0 && (item.TriggerRune == ev.Rune() || item.TriggerRune-32 == ev.Rune()) {
-			b.Action <- ActionBarAction(item.Id)
+			sendAction(b.Action, ActionBarAction(item.Id))
 			return
 		} else if item.TriggerKey > 0 && item.TriggerKey == ev.Key() {
-			b.Action <- ActionBarAction(item.Id)
+			sendAction(b.Action, ActionBarAction(item.Id))
 			return
 		}
+	}
+}
+
+// sendAction performs a non-blocking send on the action channel. The consumer
+// (handleSearchActions, handleIssueAction, etc.) only reads from this channel
+// between sub-pickers. While a sub-picker is active (the consumer is blocked
+// on a FuzzyFind.Complete waiting for the user's pick), the channel buffer
+// fills after one trigger and a second trigger would deadlock the event loop
+// on the unbuffered/single-buffered send — searchIssuesView.HandleKeyEvent
+// now calls bar.HandleKeyEvent inline (see PR #6), so this send is on the
+// terminal event-processing goroutine itself.
+//
+// Dropping a trigger when the consumer is busy is correct: an F-key press
+// while you're inside a sub-picker is ambiguous input. The user should
+// dismiss the picker first.
+func sendAction(ch chan ActionBarAction, action ActionBarAction) {
+	select {
+	case ch <- action:
+	default:
+		// Consumer busy; drop.
 	}
 }
 
