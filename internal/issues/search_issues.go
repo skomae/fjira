@@ -29,6 +29,12 @@ type searchIssuesView struct {
 	labels             []string
 	dirty              bool // refetch jira issues from api if dirty
 	clearOptionVisible bool // F8 clear-excluded button visible iff excludedStatuses non-empty
+	// cachedBoards memoizes FindBoards() for the lifetime of this view.
+	// FindBoards paginates sequentially against /rest/agile/1.0/board (Cloud
+	// caps page size at 50), so a project with hundreds of boards costs
+	// multiple round-trips on every F4 press. Boards rarely change during a
+	// session; cache miss = first F4 press, hit = every subsequent press.
+	cachedBoards []jira.BoardItem
 }
 
 const (
@@ -441,12 +447,17 @@ func (view *searchIssuesView) findLabels(query string) []string {
 }
 
 func (view *searchIssuesView) findBoards() []jira.BoardItem {
+	if view.cachedBoards != nil {
+		return view.cachedBoards
+	}
 	app.GetApp().LoadingWithText(true, ui.MessageSearchBoardsLoading)
 	bs, err := view.api.FindBoards(view.project.Id)
 	app.GetApp().Loading(false)
 	if err != nil {
 		app.Error(err.Error())
+		return bs
 	}
+	view.cachedBoards = bs
 	return bs
 }
 
