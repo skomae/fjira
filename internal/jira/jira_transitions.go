@@ -11,8 +11,20 @@ import (
 //
 
 type Status struct {
-	Id   string `json:"id"`
-	Name string `json:"name"`
+	Id             string `json:"id"`
+	Name           string `json:"name"`
+	StatusCategory struct {
+		// Key is the workflow-independent bucket: "new", "indeterminate", or
+		// "done". Preferred over name-matching Status.Name, which varies per
+		// workflow ("Done"/"Closed"/"Resolved" all map to key == "done").
+		Key  string `json:"key"`
+		Name string `json:"name"`
+	} `json:"statusCategory"`
+}
+
+// IsDone reports whether the status is in the "done" category.
+func (s Status) IsDone() bool {
+	return s.StatusCategory.Key == "done"
 }
 
 type IssueTransition struct {
