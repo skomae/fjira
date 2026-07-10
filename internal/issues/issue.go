@@ -125,30 +125,45 @@ const (
 	notDoneMark = "  "
 )
 
-// buildRelatedRows renders the right-column entries: the issue's child tickets
-// (subtasks) followed by its related/linked tickets. Each line is
-// "<mark><KEY> <summary>" as a single string so it can be drawn (and clipped)
-// in one pass — a done ticket gets a leading ✓. Returns nil when there are none.
+// buildRelatedRows renders the right-column entries from the issue's own
+// payload: its child tickets (subtasks) followed by its related/linked tickets.
+// Each line is "<mark><KEY> <summary>" as a single string so it can be drawn
+// (and clipped) in one pass — a done ticket gets a leading ✓. Epic children are
+// NOT here (they aren't in the payload); those are fetched separately, see
+// loadEpicChildren. Returns nil when there are none.
 func buildRelatedRows(issue *jira.Issue) []string {
 	rows := make([]string, 0, len(issue.Fields.Subtasks)+len(issue.Fields.IssueLinks))
 	for i := range issue.Fields.Subtasks {
-		rows = append(rows, relatedLine(&issue.Fields.Subtasks[i]))
+		st := &issue.Fields.Subtasks[i]
+		rows = append(rows, relatedLine(st.Key, st.Fields.Summary, st.Fields.Status))
 	}
 	for _, link := range issue.Fields.IssueLinks {
 		if ref := link.Linked(); ref != nil {
-			rows = append(rows, relatedLine(ref))
+			rows = append(rows, relatedLine(ref.Key, ref.Fields.Summary, ref.Fields.Status))
 		}
 	}
 	return rows
 }
 
-// relatedLine formats one related ticket as "<mark><KEY> <summary>".
-func relatedLine(ref *jira.IssueRef) string {
+// relatedRowsFromIssues renders right-column entries from full issues returned
+// by a search (e.g. an epic's children via `parent = KEY`).
+func relatedRowsFromIssues(issues []jira.Issue) []string {
+	rows := make([]string, 0, len(issues))
+	for i := range issues {
+		it := &issues[i]
+		rows = append(rows, relatedLine(it.Key, it.Fields.Summary, it.Fields.Status))
+	}
+	return rows
+}
+
+// relatedLine formats one related ticket as "<mark><KEY> <summary>", with a
+// leading ✓ when its status is in the "done" category.
+func relatedLine(key, summary string, status jira.Status) string {
 	mark := notDoneMark
-	if ref.Fields.Status.IsDone() {
+	if status.IsDone() {
 		mark = doneMark
 	}
-	return fmt.Sprintf("%s%s %s", mark, ref.Key, ref.Fields.Summary)
+	return fmt.Sprintf("%s%s %s", mark, key, summary)
 }
 
 // detailLabelWidth returns the widest label so values line up in a column.
@@ -207,6 +222,38 @@ func NewIssueView(issue *jira.Issue, goBackFn func(), api jira.Api) app.View {
 
 func (view *issueView) Init() {
 	go view.handleIssueAction()
+	// An epic's children are not in its own payload (unlike sub-tasks), so fetch
+	// them with a deferred `parent = KEY` query after the view is already loaded
+	// and rendered. Fire only when the payload carries no sub-tasks: a story's
+	// sub-tasks already come back via `parent = KEY` too, so gating on empty
+	// sub-tasks both avoids double-listing them and skips the call for leaves.
+	if len(view.issue.Fields.Subtasks) == 0 && view.issue.Key != "" {
+		go view.loadEpicChildren()
+	}
+}
+
+// loadEpicChildren runs the deferred `parent = KEY` search off the UI thread,
+// then marshals the result onto the app loop via RunOnAppRoutine so the state
+// mutation runs on the render goroutine (see applyEpicChildren). A late result
+// after navigating away harmlessly recomputes/redraws a detached view.
+func (view *issueView) loadEpicChildren() {
+	defer app.GetApp().PanicRecover()
+	children, err := view.api.SearchJql(fmt.Sprintf("parent = \"%s\" ORDER BY key ASC", view.issue.Key))
+	if err != nil || len(children) == 0 {
+		return
+	}
+	rows := relatedRowsFromIssues(children)
+	app.GetApp().RunOnAppRoutine(func() { view.applyEpicChildren(rows) })
+}
+
+// applyEpicChildren appends fetched epic-children rows and reflows the Details
+// box. Enqueued via RunOnAppRoutine so it runs on the render goroutine; the
+// relatedRows write joins the same ambient Resize/Draw sharing the rest of the
+// view already relies on (no view-layer locks anywhere).
+func (view *issueView) applyEpicChildren(rows []string) {
+	view.relatedRows = append(view.relatedRows, rows...)
+	view.recomputeDetailsLayout()
+	app.GetApp().SetDirty()
 }
 
 func (view *issueView) Destroy() {
@@ -310,6 +357,20 @@ func (view *issueView) Resize(screenX, screenY int) {
 		commentsLines = commentsLines + comment.Lines + 3
 	}
 	view.commentsLines = commentsLines + len(view.comments) + 1
+	view.recomputeDetailsLayout()
+	view.bottomBar.Resize(screenX, screenY)
+	view.topBar.Resize(screenX, screenY)
+	if view.fuzzyFind != nil {
+		view.fuzzyFind.Resize(screenX, screenY)
+	}
+}
+
+// recomputeDetailsLayout derives every layout value that depends on the related
+// rows, from the already-computed line counts and screen size, so the Details
+// box height and scroll cap always match the current related rows. Callers:
+// Resize (on the events goroutine) and applyEpicChildren (on the render loop) —
+// the same ambient, lock-free view-state sharing Resize/Draw already use.
+func (view *issueView) recomputeDetailsLayout() {
 	// Related column starts a little past the box midpoint so the metadata
 	// column keeps its natural (usually wider) share. Only meaningful when
 	// there are related rows to draw.
@@ -318,19 +379,14 @@ func (view *issueView) Resize(screenX, screenY int) {
 	// border. The box is as tall as the taller column. Single source of truth
 	// shared with Draw and the maxScrollY math below.
 	view.detailsLines = app.MaxInt(len(view.detailRows), len(view.relatedRows)) + 2
-	topAndBottomBarSize := 12
+	const topAndBottomBarSize = 12
 	// maxScrollY is the content height beyond the viewport (the existing
 	// heuristic), plus a screenY/3 buffer so scrolling to the end lands on an
 	// obviously-empty region — making "no more content" unmistakable. Larger
 	// scrollY pushes content up, so the buffer enlarges the cap; it can never
 	// hide the last line (that's reached before the cap).
-	scrollBuffer := screenY / 3
-	view.maxScrollY = app.ClampInt(int(math.Abs(float64(screenY-topAndBottomBarSize-view.descriptionLines-view.commentsLines-view.detailsLines-10)))+scrollBuffer, 0, 2000)
-	view.bottomBar.Resize(screenX, screenY)
-	view.topBar.Resize(screenX, screenY)
-	if view.fuzzyFind != nil {
-		view.fuzzyFind.Resize(screenX, screenY)
-	}
+	scrollBuffer := view.screenY / 3
+	view.maxScrollY = app.ClampInt(int(math.Abs(float64(view.screenY-topAndBottomBarSize-view.descriptionLines-view.commentsLines-view.detailsLines-10)))+scrollBuffer, 0, 2000)
 }
 
 func (view *issueView) HandleKeyEvent(ev *tcell.EventKey) {
