@@ -31,6 +31,7 @@ type IssueFields struct {
 	Type struct {
 		Name string `json:"name"`
 	} `json:"issuetype"`
+	Updated string `json:"updated"`
 	Status  Status
 	Comment struct {
 		Comments   []Comment `json:"comments"`

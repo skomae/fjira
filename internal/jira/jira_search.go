@@ -50,7 +50,7 @@ func (api *httpApi) SearchJqlPageable(jql string, page int32, pageSize int32) ([
 		Jql:        jql,
 		MaxResults: pageSize,
 		StartAt:    page * pageSize,
-		Fields:     "id,key,summary,issuetype,project,reporter,status,assignee",
+		Fields:     "id,key,summary,issuetype,project,reporter,status,assignee,updated",
 	}
 	body, err := api.jiraRequest("GET", SearchJira, queryParams, nil)
 	if err != nil {
