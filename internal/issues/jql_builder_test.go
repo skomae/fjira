@@ -15,6 +15,7 @@ func Test_buildSearchIssuesJql(t *testing.T) {
 		user             *jira.User
 		label            string
 		excludedStatuses []*jira.IssueStatus
+		orderBy          string
 	}
 	tests := []struct {
 		name string
@@ -44,10 +45,16 @@ func Test_buildSearchIssuesJql(t *testing.T) {
 			project: &jira.Project{Id: "123"}, excludedStatuses: []*jira.IssueStatus{{Id: "done"}, {Id: "wontfix"}}},
 			"project=123 AND status!=done AND status!=wontfix ORDER BY status",
 		},
+		{"should default empty orderBy to status", args{project: &jira.Project{Id: "123"}, orderBy: ""}, "project=123 ORDER BY status"},
+		{"should sort by updated descending", args{project: &jira.Project{Id: "123"}, orderBy: OrderByUpdated}, "project=123 ORDER BY updated DESC"},
+		{"should sort by updated with filters", args{
+			project: &jira.Project{Id: "123"}, status: &jira.IssueStatus{Id: "st1"}, orderBy: OrderByUpdated},
+			"project=123 AND status=st1 ORDER BY updated DESC",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, BuildSearchIssuesJql(tt.args.project, tt.args.query, tt.args.status, tt.args.user, tt.args.label, tt.args.excludedStatuses), "BuildSearchIssuesJql(%v, %v, %v, %v)", tt.args.project, tt.args.query, tt.args.status, tt.args.user)
+			assert.Equalf(t, tt.want, BuildSearchIssuesJql(tt.args.project, tt.args.query, tt.args.status, tt.args.user, tt.args.label, tt.args.excludedStatuses, tt.args.orderBy), "BuildSearchIssuesJql(%v, %v, %v, %v)", tt.args.project, tt.args.query, tt.args.status, tt.args.user)
 		})
 	}
 }

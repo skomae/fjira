@@ -26,7 +26,8 @@ const (
 	ActionCreateIssue
 	ActionEditDescription
 	ActionExcludeStatus
-	ActionClearExcludedStatuses
+	ActionClearFilters
+	ActionToggleSort
 )
 
 type NavItemConfig struct {
@@ -236,14 +237,28 @@ func NewCreateIssueBarItem() *app.ActionBarItem {
 	}
 }
 
-func NewClearExcludedStatusesBarItem() *app.ActionBarItem {
+func NewClearFiltersBarItem() *app.ActionBarItem {
 	return &app.ActionBarItem{
-		Id:         int(ActionClearExcludedStatuses),
-		Text1:      MessageClearExcludedStatuses,
+		Id:         int(ActionClearFilters),
+		Text1:      MessageClearFilters,
 		Text2:      "[F8]",
 		Text1Style: bottomBarItemDefaultStyle(),
 		Text2Style: bottomBarActionBarKeyBold(),
 		TriggerKey: tcell.KeyF8,
+	}
+}
+
+// NewToggleSortBarItem creates the always-visible F9 item that toggles the
+// issue list's sort order. Text1 reflects the current mode so the label doubles
+// as a status indicator; the caller flips it with ChangeText on toggle.
+func NewToggleSortBarItem(text1 string) *app.ActionBarItem {
+	return &app.ActionBarItem{
+		Id:         int(ActionToggleSort),
+		Text1:      text1,
+		Text2:      "[F9]",
+		Text1Style: bottomBarItemDefaultStyle(),
+		Text2Style: bottomBarActionBarKeyBold(),
+		TriggerKey: tcell.KeyF9,
 	}
 }
 

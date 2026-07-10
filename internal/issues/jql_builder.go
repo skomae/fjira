@@ -12,12 +12,24 @@ import (
 // unbounded queries with HTTP 400 ("Unbounded JQL queries are not allowed here").
 const DefaultBoundedJql = "created >= -30d"
 
-func BuildSearchIssuesJql(project *jira.Project, query string, status *jira.IssueStatus, user *jira.User, label string, excludedStatuses []*jira.IssueStatus) string {
+// ORDER BY clauses the issue browser can toggle between with F9. Updated is
+// DESC so the server returns the most recently updated issues within the single
+// fetched page (rather than the oldest); the fuzzy-find list renders index 0 at
+// the bottom, so newest-first from the API lands with the most recent at the
+// bottom of the list.
+const (
+	OrderByStatus  = "ORDER BY status"
+	OrderByUpdated = "ORDER BY updated DESC"
+)
+
+func BuildSearchIssuesJql(project *jira.Project, query string, status *jira.IssueStatus, user *jira.User, label string, excludedStatuses []*jira.IssueStatus, orderBy string) string {
 	jql := ""
 	if project != nil && project.Id != ui.MessageAll {
 		jql = jql + fmt.Sprintf("project=%s", project.Id)
 	}
-	orderBy := "ORDER BY status"
+	if orderBy == "" {
+		orderBy = OrderByStatus
+	}
 	query = strings.TrimSpace(query)
 	if query != "" {
 		jql = jql + fmt.Sprintf(" AND summary~\"%s*\"", query)
