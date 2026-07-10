@@ -80,6 +80,19 @@ func (b *ActionBar) GetItem(index int) *ActionBarItem {
 	return &b.items[index]
 }
 
+// GetItemById returns a pointer to the live item with the given Id, or nil if
+// none matches. Unlike GetItem (which indexes positionally), this is stable
+// against items being added or removed. The returned pointer indexes into the
+// backing slice, so mutations (e.g. ChangeText) affect the rendered item.
+func (b *ActionBar) GetItemById(id int) *ActionBarItem {
+	for i := range b.items {
+		if b.items[i].Id == id {
+			return &b.items[i]
+		}
+	}
+	return nil
+}
+
 func (b *ActionBar) RemoveItem(id int) {
 	for i, item := range b.items {
 		if item.Id == id {
