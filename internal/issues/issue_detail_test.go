@@ -3,6 +3,7 @@ package issues
 import (
 	"bytes"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -243,6 +244,61 @@ func Test_buildRelatedRows(t *testing.T) {
 			"✓ C-3 a done link",
 		}, rows)
 	})
+}
+
+func Test_relatedRowsFromIssues(t *testing.T) {
+	done := jira.Issue{Key: "E-1"}
+	done.Fields.Summary = "done child"
+	done.Fields.Status.StatusCategory.Key = "done"
+	open := jira.Issue{Key: "E-2"}
+	open.Fields.Summary = "open child"
+	open.Fields.Status.StatusCategory.Key = "new"
+	rows := relatedRowsFromIssues([]jira.Issue{done, open})
+	assert.Equal(t, []string{"✓ E-1 done child", "  E-2 open child"}, rows)
+}
+
+// applyEpicChildren appends the fetched rows and reflows the box: after it, the
+// related column carries the children and the box grew to fit them.
+func Test_issueView_applyEpicChildren(t *testing.T) {
+	const w, h = 80, 60
+	screen := newDetailTestScreen(t, w, h)
+	defer screen.Fini()
+	// An epic with no payload sub-tasks/links: starts with only metadata rows.
+	epic := &jira.Issue{Key: "EPIC-1"}
+	epic.Fields.Summary = "an epic"
+	view := NewIssueView(epic, nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.Resize(w, h)
+	assert.Empty(t, view.relatedRows, "no related rows before children arrive")
+	// Before: the box is sized to the metadata column (4 rows: priority/type/
+	// created/updated) + 2 borders.
+	assert.Equal(t, len(view.detailRows)+2, view.detailsLines)
+
+	// Add more related rows than metadata rows so the box must grow to fit them.
+	children := []string{"✓ CH-1 a", "  CH-2 b", "  CH-3 c", "  CH-4 d", "  CH-5 e", "  CH-6 f"}
+	view.applyEpicChildren(children)
+
+	assert.Equal(t, children, view.relatedRows)
+	assert.Greater(t, len(children), len(view.detailRows), "sanity: related now exceeds metadata")
+	assert.Equal(t, len(children)+2, view.detailsLines, "box height reflows to max(metadata, related)+2")
+}
+
+// loadEpicChildren issues the deferred `parent = KEY` search with the right JQL.
+// The result closure is enqueued (harmlessly un-drained here); this guards the
+// query that the whole epic-children feature depends on.
+func Test_issueView_loadEpicChildren_queries_parent(t *testing.T) {
+	app.InitTestApp(nil)
+	var gotURL string
+	api := jira.NewJiraApiMock(func(w http.ResponseWriter, r *http.Request) {
+		gotURL = r.URL.String()
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"issues":[]}`))
+	})
+	epic := &jira.Issue{Key: "EPIC-1"}
+	view := NewIssueView(epic, nil, api).(*issueView)
+
+	view.loadEpicChildren() // synchronous up to the RunOnAppRoutine enqueue
+
+	assert.Contains(t, gotURL, "parent+%3D+%22EPIC-1%22", "queries parent = \"EPIC-1\"")
 }
 
 // The related column renders its header, child tickets, and links, with a
