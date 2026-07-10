@@ -100,32 +100,53 @@ func formatJiraIssueTableWithRanges(issue *jira.Issue, summaryColWidth int, stat
 	dateCol := formatRelativeTime(issue.Fields.Updated, now)
 
 	// Assemble with single-space separators, tracking byte offsets so we can
-	// mark the key and summary ranges. right-aligned padding means the value
-	// sits at the end of its column, so each range starts where the trimmed
-	// value begins.
+	// mark the matchable ranges. right-aligned padding means the value sits at
+	// the end of its column, so the value starts where the trimmed value begins.
 	var b strings.Builder
 	var ranges []app.MatchRange
-	writeCol := func(col string, matchable bool) {
+	// matchFrom marks a matchable range from a byte offset within the value
+	// (offset 0 = whole trimmed value). -1 means the column is not matchable.
+	writeCol := func(col string, matchFrom int) {
 		start := b.Len()
 		b.WriteString(col)
-		if matchable {
+		if matchFrom >= 0 {
 			// Skip leading padding so the range covers only the value.
 			valueStart := start + (len(col) - len(strings.TrimLeft(col, " ")))
-			ranges = append(ranges, app.MatchRange{Start: valueStart, End: b.Len()})
+			ranges = append(ranges, app.MatchRange{Start: valueStart + matchFrom, End: b.Len()})
 		}
 	}
-	writeCol(keyCol, true)
+	// Only the numeric issue number is matchable on the key (per the spec:
+	// "matching numbers on the issue number") — so an alphabetic query never
+	// lands on the project prefix (e.g. the S in COINS for a "skip" search).
+	writeCol(keyCol, issueKeyNumberOffset(issue.Key))
 	b.WriteByte(' ')
-	writeCol(typeCol, false)
+	writeCol(typeCol, -1)
 	b.WriteByte(' ')
-	writeCol(summaryCol, true)
+	writeCol(summaryCol, 0)
 	b.WriteByte(' ')
-	writeCol(statusCol, false)
+	writeCol(statusCol, -1)
 	b.WriteByte(' ')
-	writeCol(assigneeCol, false)
+	writeCol(assigneeCol, -1)
 	b.WriteByte(' ')
-	writeCol(dateCol, false)
+	writeCol(dateCol, -1)
 	return b.String(), ranges
+}
+
+// issueKeyNumberOffset returns the byte offset within an issue key at which the
+// numeric issue number begins — the run after the final '-' (e.g. 6 for
+// "COINS-115", pointing at "115"). Falls back to 0 (whole key matchable) if the
+// key has no '-' or no trailing digits, so unusual keys stay searchable.
+func issueKeyNumberOffset(key string) int {
+	dash := strings.LastIndex(key, "-")
+	if dash < 0 || dash+1 >= len(key) {
+		return 0
+	}
+	for _, r := range key[dash+1:] {
+		if r < '0' || r > '9' {
+			return 0
+		}
+	}
+	return dash + 1
 }
 
 func FormatJiraIssues(issues []jira.Issue) []string {
