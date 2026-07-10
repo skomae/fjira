@@ -66,6 +66,17 @@ func FormatJiraIssue(issue *jira.Issue) string {
 }
 
 func FormatJiraIssueTable(issue *jira.Issue, summaryColWidth int, statusColWidth int, typeColWidth int, assigneeColWidth int, now time.Time) string {
+	row, _ := formatJiraIssueTableWithRanges(issue, summaryColWidth, statusColWidth, typeColWidth, assigneeColWidth, now)
+	return row
+}
+
+// formatJiraIssueTableWithRanges formats one issue row and returns, alongside
+// it, the byte ranges of the matchable columns (the issue key and the summary).
+// Fuzzy matching/highlighting is scoped to those ranges so the type, status,
+// assignee, and last-updated columns are never matched or highlighted. Offsets
+// are tracked during assembly rather than located afterwards, so summary text
+// that happens to recur elsewhere can't be mismatched.
+func formatJiraIssueTableWithRanges(issue *jira.Issue, summaryColWidth int, statusColWidth int, typeColWidth int, assigneeColWidth int, now time.Time) (string, []app.MatchRange) {
 	assignee := issue.Fields.Assignee.DisplayName
 	if assignee == "" {
 		assignee = ui.MessageUnassigned
@@ -80,13 +91,41 @@ func FormatJiraIssueTable(issue *jira.Issue, summaryColWidth int, statusColWidth
 	// vertically instead of drifting with each name's length.
 	assigneeColWidth = app.MinInt(assigneeColWidth, ui.MaxAssigneeColWidth)
 	assigneeCut := app.MinInt(assigneeColWidth, len(assignee))
-	return fmt.Sprintf("%10s %"+strconv.Itoa(typeColWidth+ui.TableColumnPadding)+"s %"+strconv.Itoa(summaryColWidth+ui.TableColumnPadding)+"s %"+strconv.Itoa(statusColWidth+4+ui.TableColumnPadding)+"s %"+strconv.Itoa(assigneeColWidth+2+ui.TableColumnPadding)+"s %s",
-		issue.Key,
-		strings.ToUpper(issue.Fields.Type.Name[:typeCut]),
-		issue.Fields.Summary[:summaryCut],
-		fmt.Sprintf("[%s]", strings.ToUpper(issue.Fields.Status.Name[:statusCut])),
-		fmt.Sprintf("- %s", assignee[:assigneeCut]),
-		formatRelativeTime(issue.Fields.Updated, now))
+
+	keyCol := fmt.Sprintf("%10s", issue.Key)
+	typeCol := fmt.Sprintf("%"+strconv.Itoa(typeColWidth+ui.TableColumnPadding)+"s", strings.ToUpper(issue.Fields.Type.Name[:typeCut]))
+	summaryCol := fmt.Sprintf("%"+strconv.Itoa(summaryColWidth+ui.TableColumnPadding)+"s", issue.Fields.Summary[:summaryCut])
+	statusCol := fmt.Sprintf("%"+strconv.Itoa(statusColWidth+4+ui.TableColumnPadding)+"s", fmt.Sprintf("[%s]", strings.ToUpper(issue.Fields.Status.Name[:statusCut])))
+	assigneeCol := fmt.Sprintf("%"+strconv.Itoa(assigneeColWidth+2+ui.TableColumnPadding)+"s", fmt.Sprintf("- %s", assignee[:assigneeCut]))
+	dateCol := formatRelativeTime(issue.Fields.Updated, now)
+
+	// Assemble with single-space separators, tracking byte offsets so we can
+	// mark the key and summary ranges. right-aligned padding means the value
+	// sits at the end of its column, so each range starts where the trimmed
+	// value begins.
+	var b strings.Builder
+	var ranges []app.MatchRange
+	writeCol := func(col string, matchable bool) {
+		start := b.Len()
+		b.WriteString(col)
+		if matchable {
+			// Skip leading padding so the range covers only the value.
+			valueStart := start + (len(col) - len(strings.TrimLeft(col, " ")))
+			ranges = append(ranges, app.MatchRange{Start: valueStart, End: b.Len()})
+		}
+	}
+	writeCol(keyCol, true)
+	b.WriteByte(' ')
+	writeCol(typeCol, false)
+	b.WriteByte(' ')
+	writeCol(summaryCol, true)
+	b.WriteByte(' ')
+	writeCol(statusCol, false)
+	b.WriteByte(' ')
+	writeCol(assigneeCol, false)
+	b.WriteByte(' ')
+	writeCol(dateCol, false)
+	return b.String(), ranges
 }
 
 func FormatJiraIssues(issues []jira.Issue) []string {
@@ -111,6 +150,36 @@ func FormatJiraIssues(issues []jira.Issue) []string {
 		formatted = append(formatted, FormatJiraIssueTable(&issue, summaryColWidth, statusColWidth, typeColWidth, assigneeColWidth, now))
 	}
 	return formatted
+}
+
+// FormatJiraIssuesWithRanges formats the issues and returns, index-aligned with
+// the rows, the matchable byte ranges (key + summary) for each. Fed to the
+// range-aware fuzzy finder so matching/highlighting ignore the other columns.
+func FormatJiraIssuesWithRanges(issues []jira.Issue) ([]string, [][]app.MatchRange) {
+	formatted := make([]string, 0, len(issues))
+	ranges := make([][]app.MatchRange, 0, len(issues))
+	summaryColWidth := findIssueColumnSize(&issues, func(i jira.Issue) string {
+		return i.Fields.Summary
+	})
+	statusColWidth := findIssueColumnSize(&issues, func(i jira.Issue) string {
+		return i.Fields.Status.Name
+	})
+	typeColWidth := findIssueColumnSize(&issues, func(i jira.Issue) string {
+		return i.Fields.Type.Name
+	})
+	assigneeColWidth := findIssueColumnSize(&issues, func(i jira.Issue) string {
+		if i.Fields.Assignee.DisplayName == "" {
+			return ui.MessageUnassigned
+		}
+		return i.Fields.Assignee.DisplayName
+	})
+	now := time.Now()
+	for _, issue := range issues {
+		row, rr := formatJiraIssueTableWithRanges(&issue, summaryColWidth, statusColWidth, typeColWidth, assigneeColWidth, now)
+		formatted = append(formatted, row)
+		ranges = append(ranges, rr)
+	}
+	return formatted, ranges
 }
 
 func FormatAssignee(issue *jira.Issue) string {

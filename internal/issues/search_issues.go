@@ -224,7 +224,7 @@ func (view *searchIssuesView) HandleKeyEvent(ev *tcell.EventKey) {
 
 func (view *searchIssuesView) runIssuesFuzzyFind() {
 	a := app.GetApp()
-	view.fuzzyFind = app.NewFuzzyFindWithProvider(ui.MessageSelectIssue, view.findIssues)
+	view.fuzzyFind = app.NewFuzzyFindWithRangeProvider(ui.MessageSelectIssue, view.findIssuesWithRanges)
 	view.fuzzyFind.MarginBottom = 1
 	if view.customJql != "" {
 		view.fuzzyFind.MarginBottom = 0
@@ -253,7 +253,10 @@ func (view *searchIssuesView) goToIssueView(issueKey string) {
 	app.GoTo("issue", issueKey, view.reopen, view.api)
 }
 
-func (view *searchIssuesView) findIssues(query string) []string {
+// refetchIfNeeded fetches issues from the API when the current cache is stale
+// for the given query, and records the query. Shared by the fuzzy-find
+// providers so their fetch semantics stay identical.
+func (view *searchIssuesView) refetchIfNeeded(query string) {
 	a := app.GetApp()
 	query = strings.TrimSpace(query)
 
@@ -272,7 +275,14 @@ func (view *searchIssuesView) findIssues(query string) []string {
 	}
 
 	view.currentQuery = query
-	return FormatJiraIssues(view.issues)
+}
+
+// findIssuesWithRanges is the range-aware fuzzy-find provider: it returns the
+// display rows plus the matchable key/summary ranges so matching and
+// highlighting ignore the type/status/assignee/date columns.
+func (view *searchIssuesView) findIssuesWithRanges(query string) ([]string, [][]app.MatchRange) {
+	view.refetchIfNeeded(query)
+	return FormatJiraIssuesWithRanges(view.issues)
 }
 
 // queryIsNumericWithProject reports whether the given query is purely numeric
