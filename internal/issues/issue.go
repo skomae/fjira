@@ -173,18 +173,9 @@ func (view *issueView) HandleKeyEvent(ev *tcell.EventKey) {
 }
 
 // calculatePageSize returns how many rows PgUp/PgDn should advance scrollY.
-// Visible content height is screen height minus chrome (top/bottom bars + a
-// margin), capped at half the screen so a page-jump never feels disorienting,
-// and floored at 5 so very small terminals still scroll noticeably.
+// Delegates to app.ScrollPageSize so paging matches the text editor.
 func (view *issueView) calculatePageSize() int {
-	const chromeRows = 16 // top/bottom bars (12) + margin (4)
-	const minPage = 5
-	visibleHeight := view.screenY - chromeRows
-	pageSize := app.ClampInt(visibleHeight, 1, view.screenY/2)
-	if pageSize < minPage {
-		pageSize = minPage
-	}
-	return pageSize
+	return app.ScrollPageSize(view.screenY)
 }
 
 func (view *issueView) goBack() {

@@ -336,6 +336,23 @@ func (a *App) RunOnAppRoutine(f func()) {
 	a.runOnAppRoutine = append(a.runOnAppRoutine, f)
 }
 
+// RunWithScreenSuspended pauses tcell's control of the terminal, runs fn
+// (typically a blocking child process such as $EDITOR), then resumes. It must
+// be invoked from the app render routine (via RunOnAppRoutine) so that Render()
+// is not drawing to a suspended screen concurrently.
+func (a *App) RunWithScreenSuspended(fn func()) error {
+	if err := a.screen.Suspend(); err != nil {
+		return err
+	}
+	// Resume even if fn panics, so the terminal is never left suspended.
+	defer func() {
+		_ = a.screen.Resume()
+		a.setDirty()
+	}()
+	fn()
+	return nil
+}
+
 func (a *App) Quit() {
 	a.quit = true
 }
