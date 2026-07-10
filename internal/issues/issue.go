@@ -28,7 +28,8 @@ type issueView struct {
 	detailsLines      int
 	maxScrollY        int
 	body              string
-	detailRows        []string
+	detailRows        []detailRow
+	detailLabelWidth  int
 	summaryLen        int
 	labels            string
 	labelsLen         int
@@ -37,6 +38,7 @@ type issueView struct {
 	screenY           int
 	boxTitleStyle     tcell.Style
 	defaultStyle      tcell.Style
+	dimStyle          tcell.Style
 }
 
 var (
@@ -56,40 +58,47 @@ const (
 	labelsDelimiter     = " | "
 )
 
-// detailRow is one aligned "label   value" line inside the Details box.
+// detailRow is one line inside the Details box: an aligned "label   value",
+// optionally followed by a dimmer parenthetical (dimValue). For timestamp rows
+// value is the relative time ("2 hours ago") and dimValue the absolute date
+// ("4 Jun 2026 10:35 AM +0200"); other rows leave dimValue empty.
 type detailRow struct {
-	label string
-	value string
+	label    string
+	value    string
+	dimValue string
 }
 
 // buildDetailRows returns the fixed set of rows shown in the issue's Details
-// box: priority, type, and human-friendly created/updated timestamps. The row
-// count is constant so the surrounding scroll math (view.detailsLines) never
-// drifts between Draw and Resize; empty values render blank rather than being
+// box: priority, type, and created/updated timestamps. The row count is
+// constant so the surrounding scroll math (view.detailsLines) never drifts
+// between Draw and Resize; empty values render blank rather than being
 // dropped. now is injected so relative-time rendering stays deterministic.
 func buildDetailRows(issue *jira.Issue, now time.Time) []detailRow {
 	return []detailRow{
-		{ui.MessageDetailPriority, issue.Fields.Priority.Name},
-		{ui.MessageDetailType, issue.Fields.Type.Name},
-		{ui.MessageDetailCreated, app.FormatRelativeTime(issue.Fields.Created, now)},
-		{ui.MessageDetailUpdated, app.FormatRelativeTime(issue.Fields.Updated, now)},
+		{label: ui.MessageDetailPriority, value: issue.Fields.Priority.Name},
+		{label: ui.MessageDetailType, value: issue.Fields.Type.Name},
+		{
+			label:    ui.MessageDetailCreated,
+			value:    app.FormatRelativeTime(issue.Fields.Created, now),
+			dimValue: app.FormatAbsoluteTime(issue.Fields.Created),
+		},
+		{
+			label:    ui.MessageDetailUpdated,
+			value:    app.FormatRelativeTime(issue.Fields.Updated, now),
+			dimValue: app.FormatAbsoluteTime(issue.Fields.Updated),
+		},
 	}
 }
 
-// formatDetailRows renders the detail rows as aligned "label   value" strings,
-// padding every label to the widest so values line up in a column.
-func formatDetailRows(rows []detailRow) []string {
+// detailLabelWidth returns the widest label so values line up in a column.
+func detailLabelWidth(rows []detailRow) int {
 	labelWidth := 0
 	for _, r := range rows {
 		if len(r.label) > labelWidth {
 			labelWidth = len(r.label)
 		}
 	}
-	out := make([]string, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, fmt.Sprintf("%-*s  %s", labelWidth, r.label, r.value))
-	}
-	return out
+	return labelWidth
 }
 
 func NewIssueView(issue *jira.Issue, goBackFn func(), api jira.Api) app.View {
@@ -109,23 +118,28 @@ func NewIssueView(issue *jira.Issue, goBackFn func(), api jira.Api) app.View {
 	cs := comments.ParseCommentsFromIssue(issue, 1000, 1000)
 	ls := strings.Join(issue.Fields.Labels, labelsDelimiter)
 	labelsLen := len(ls)
-	detailRows := formatDetailRows(buildDetailRows(issue, time.Now()))
+	detailRows := buildDetailRows(issue, time.Now())
 
 	return &issueView{
-		api:           api,
-		bottomBar:     bottomBar,
-		topBar:        issueActionBar,
-		issue:         issue,
-		scrollY:       0,
-		body:          issue.Fields.Description,
-		comments:      cs,
-		labels:        ls,
-		labelsLen:     labelsLen,
-		detailRows:    detailRows,
-		summaryLen:    len(issue.Fields.Summary),
-		goBackFn:      goBackFn,
-		boxTitleStyle: app.DefaultStyle().Foreground(app.Color("details.foreground")),
-		defaultStyle:  app.DefaultStyle(),
+		api:              api,
+		bottomBar:        bottomBar,
+		topBar:           issueActionBar,
+		issue:            issue,
+		scrollY:          0,
+		body:             issue.Fields.Description,
+		comments:         cs,
+		labels:           ls,
+		labelsLen:        labelsLen,
+		detailRows:       detailRows,
+		detailLabelWidth: detailLabelWidth(detailRows),
+		summaryLen:       len(issue.Fields.Summary),
+		goBackFn:         goBackFn,
+		boxTitleStyle:    app.DefaultStyle().Foreground(app.Color("details.foreground")),
+		defaultStyle:     app.DefaultStyle(),
+		// Absolute date reuses the box-header color (details.foreground, a dim
+		// gray) so it recedes behind the brighter relative time. foreground2 is
+		// an emphasis (brighter) color, not a muted one — wrong direction here.
+		dimStyle: app.DefaultStyle().Foreground(app.Color("details.foreground")),
 	}
 }
 
@@ -159,7 +173,14 @@ func (view *issueView) Draw(screen tcell.Screen) {
 		app.DrawBox(screen, 1, view.lastY+1, view.descriptionLimitX+4, view.lastY+view.detailsLines, view.boxTitleStyle)
 		app.DrawText(screen, 2, view.lastY+1, view.boxTitleStyle, ui.MessageDetails)
 		for i, row := range view.detailRows {
-			app.DrawText(screen, 3, view.lastY+2+i, view.defaultStyle, row)
+			// Label column (padded) + value in the default style; the absolute
+			// date, when present, follows in a dimmer style so the human-readable
+			// relative time reads as primary.
+			left := fmt.Sprintf("%-*s  %s", view.detailLabelWidth, row.label, row.value)
+			app.DrawText(screen, 3, view.lastY+2+i, view.defaultStyle, left)
+			if row.dimValue != "" {
+				app.DrawText(screen, 3+len(left)+1, view.lastY+2+i, view.dimStyle, "("+row.dimValue+")")
+			}
 		}
 		view.lastY = view.lastY + view.detailsLines + 1
 

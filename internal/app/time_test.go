@@ -40,3 +40,23 @@ func Test_FormatRelativeTime(t *testing.T) {
 		})
 	}
 }
+
+func Test_FormatAbsoluteTime(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty string", "", ""},
+		{"unparseable", "not-a-date", ""},
+		{"utc", "2026-07-10T10:00:00.000+0000", "10 Jul 2026 10:00 AM +0000"},
+		{"pm", "2026-06-04T22:35:00.000+0200", "4 Jun 2026 10:35 PM +0200"},
+		{"am with offset", "2026-06-04T10:35:00.000+0200", "4 Jun 2026 10:35 AM +0200"},
+		{"negative offset", "2026-07-10T14:30:00.000-0400", "10 Jul 2026 2:30 PM -0400"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, FormatAbsoluteTime(tt.in))
+		})
+	}
+}

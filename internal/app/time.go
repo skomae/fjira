@@ -9,6 +9,26 @@ import (
 // fields such as "updated" and "created", e.g. 2026-07-10T14:30:00.000-0400.
 const JiraTimestampLayout = "2006-01-02T15:04:05.000-0700"
 
+// absoluteTimeLayout renders a parsed Jira timestamp as an absolute,
+// human-readable date, e.g. "4 Jun 2026 10:35 AM +0200". The numeric offset is
+// carried through from the timestamp itself (Jira gives an offset, not a named
+// zone, so there is no reliable "ET"/"PST" to print).
+const absoluteTimeLayout = "2 Jan 2006 3:04 PM -0700"
+
+// FormatAbsoluteTime renders a Jira timestamp as an absolute date/time string
+// in the timestamp's own timezone offset (see absoluteTimeLayout). An empty or
+// unparseable timestamp yields "" so callers degrade gracefully.
+func FormatAbsoluteTime(ts string) string {
+	if ts == "" {
+		return ""
+	}
+	t, err := time.Parse(JiraTimestampLayout, ts)
+	if err != nil {
+		return ""
+	}
+	return t.Format(absoluteTimeLayout)
+}
+
 // FormatRelativeTime renders a Jira timestamp as a friendly relative string
 // ("2 hours ago", "yesterday", "last week"). now is injected so the function
 // stays pure and deterministically testable. An empty or unparseable timestamp

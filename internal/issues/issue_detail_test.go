@@ -14,31 +14,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_formatDetailRows_aligns_labels(t *testing.T) {
-	rows := formatDetailRows([]detailRow{
-		{"Priority", "High"},
-		{"Type", "Bug"},
-		{"Created", "3 days ago"},
-	})
-	// Every value column must start at the same offset (widest label + 2).
-	firstColon := -1
-	for _, r := range rows {
-		idx := strings.Index(r, " High")
-		if idx < 0 {
-			idx = strings.Index(r, " Bug")
-		}
-		if idx < 0 {
-			idx = strings.Index(r, " 3 days ago")
-		}
-		if firstColon == -1 {
-			firstColon = idx
-		}
-		assert.Equal(t, firstColon, idx, "value columns should be left-aligned to the same offset in row %q", r)
-	}
-	// A blank value renders without panicking and keeps the row.
-	rows = formatDetailRows([]detailRow{{"Priority", ""}})
-	assert.Len(t, rows, 1)
-	assert.Contains(t, rows[0], "Priority")
+func Test_detailLabelWidth(t *testing.T) {
+	assert.Equal(t, len("Priority"), detailLabelWidth([]detailRow{
+		{label: "Type"},
+		{label: "Priority"},
+		{label: "Created"},
+	}))
+	assert.Equal(t, 0, detailLabelWidth(nil))
 }
 
 func Test_buildDetailRows_content(t *testing.T) {
@@ -49,12 +31,24 @@ func Test_buildDetailRows_content(t *testing.T) {
 	issue.Fields.Created = "2026-07-07T12:00:00.000+0000"
 	issue.Fields.Updated = "2026-07-10T10:00:00.000+0000"
 	rows := buildDetailRows(issue, now)
+	// value = relative (primary), dimValue = absolute (rendered dimmer).
 	assert.Equal(t, []detailRow{
-		{ui.MessageDetailPriority, "High"},
-		{ui.MessageDetailType, "Bug"},
-		{ui.MessageDetailCreated, "3 days ago"},
-		{ui.MessageDetailUpdated, "2 hours ago"},
+		{label: ui.MessageDetailPriority, value: "High"},
+		{label: ui.MessageDetailType, value: "Bug"},
+		{label: ui.MessageDetailCreated, value: "3 days ago", dimValue: "7 Jul 2026 12:00 PM +0000"},
+		{label: ui.MessageDetailUpdated, value: "2 hours ago", dimValue: "10 Jul 2026 10:00 AM +0000"},
 	}, rows)
+}
+
+func Test_buildDetailRows_empty_timestamps(t *testing.T) {
+	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	issue := &jira.Issue{} // no created/updated set
+	rows := buildDetailRows(issue, now)
+	// Empty timestamps yield empty value AND dimValue, so Draw emits no stray "()".
+	assert.Empty(t, rows[2].value)
+	assert.Empty(t, rows[2].dimValue)
+	assert.Empty(t, rows[3].value)
+	assert.Empty(t, rows[3].dimValue)
 }
 
 // renderVisibleRows draws the view and returns the visible screen buffer split
@@ -128,6 +122,64 @@ func Test_issueView_draws_details_box(t *testing.T) {
 	for _, want := range []string{ui.MessageDetails, "Priority", "High", "Bug"} {
 		assert.Contains(t, joined, want, "Details box should render %q", want)
 	}
+}
+
+// fgOnRowContaining returns the foreground color of the first cell of `needle`,
+// searching only the row that contains `anchor`. Scoping to a row disambiguates
+// text that also appears elsewhere on screen (e.g. the relative time shown both
+// in the top bar and in the Details row).
+func fgOnRowContaining(screen tcell.SimulationScreen, anchor, needle string) (tcell.Color, bool) {
+	contents, cw, ch := screen.GetContents()
+	for y := 0; y < ch; y++ {
+		var row bytes.Buffer
+		offsets := make([]int, cw)
+		for x := 0; x < cw; x++ {
+			offsets[x] = row.Len()
+			cell := contents[y*cw+x]
+			if len(cell.Bytes) == 0 {
+				row.WriteByte(' ')
+			} else {
+				row.Write(cell.Bytes)
+			}
+		}
+		if !bytes.Contains(row.Bytes(), []byte(anchor)) {
+			continue
+		}
+		idx := bytes.Index(row.Bytes(), []byte(needle))
+		if idx < 0 {
+			return tcell.ColorDefault, false
+		}
+		for x, off := range offsets {
+			if off == idx {
+				fg, _, _ := contents[y*cw+x].Style.Decompose()
+				return fg, true
+			}
+		}
+	}
+	return tcell.ColorDefault, false
+}
+
+// The absolute date renders in a dimmer style (details.foreground, the dim gray
+// used for box headers) than the relative time (default.foreground) — the whole
+// point of this two-tone row. Both are scoped to the Details row (anchored by
+// the absolute date, which is unique to it) so the top bar's "Updated: 4 years
+// ago" can't be mismatched.
+func Test_issueView_details_absolute_date_is_dimmer(t *testing.T) {
+	const w, h = 100, 60
+	screen := newDetailTestScreen(t, w, h)
+	defer screen.Fini()
+	view := NewIssueView(detailTestIssue(1), nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.Resize(w, h)
+	renderVisibleRows(view, screen) // paint the screen
+
+	const absolute = "2 Oct 2021" // Created row's absolute date, unique to Details
+	relFg, relOk := fgOnRowContaining(screen, absolute, "4 years ago")
+	absFg, absOk := fgOnRowContaining(screen, absolute, absolute)
+	assert.True(t, relOk, "relative time should be on the Details row")
+	assert.True(t, absOk, "absolute date should be on the Details row")
+	assert.Equal(t, app.Color("default.foreground"), relFg, "relative time uses the default foreground")
+	assert.Equal(t, app.Color("details.foreground"), absFg, "absolute date uses the dim header color")
+	assert.NotEqual(t, relFg, absFg, "absolute date must be visually distinct (dimmer) from the relative time")
 }
 
 // Scrolling to the bottom must keep the last comment reachable AND leave an
