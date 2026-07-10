@@ -118,8 +118,11 @@ func (f *Fjira) bootstrap(args *CliArgs) {
 		return
 	}
 	if args.ProjectId != "" {
+		// Launched directly with --project, so issues-search is the top-level
+		// view — the projects list was never on the stack. Esc backs out of the
+		// app rather than dropping into a projects list the user didn't open.
 		app.GoTo("issues-search", args.ProjectId, func() {
-			app.GoTo("projects", f.api)
+			f.app.Quit()
 		}, f.api)
 		return
 	}
