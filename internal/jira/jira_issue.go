@@ -39,7 +39,11 @@ type IssueFields struct {
 		Total      int32     `json:"total"`
 		StartAt    int32     `json:"startAt"`
 	} `json:"comment"`
-	Labels []string `json:"labels"`
+	Labels   []string `json:"labels"`
+	Priority struct {
+		Name string `json:"name"`
+	} `json:"priority"`
+	Created string `json:"created"`
 }
 
 type descriptionUpdateRequestBody struct {

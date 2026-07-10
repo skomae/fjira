@@ -40,6 +40,7 @@ func Test_httpJiraApi_GetIssueDetailed(t *testing.T) {
 					}{"", ""}),
 					Type:    IssueType{Name: "Task"},
 					Updated: "2022-02-22T00:27:19.792+0100",
+					Created: "2021-10-02T22:34:22.521+0200",
 					Labels:  []string{"TestLabel"},
 					Status:  Status{Id: "10013", Name: "Done"},
 					Comment: struct {
