@@ -277,12 +277,23 @@ func (view *searchIssuesView) refetchIfNeeded(query string) {
 	view.currentQuery = query
 }
 
-// findIssuesWithRanges is the range-aware fuzzy-find provider: it returns the
-// display rows plus the matchable key/summary ranges so matching and
-// highlighting ignore the type/status/assignee/date columns.
-func (view *searchIssuesView) findIssuesWithRanges(query string) ([]string, [][]app.MatchRange) {
+// findIssuesWithRanges is the range-aware fuzzy-find provider. Besides the
+// display rows and matchable key/summary ranges, it returns a per-row "dimmed"
+// flag. During an active search (filters relaxed server-side) it reorders the
+// fetched issues so filter-aligned ones come first — a soft tiebreak under the
+// fuzzy sort — and flags excluded-status issues dimmed so they render muted and
+// sort last. When browsing (no query) nothing is reordered or dimmed.
+func (view *searchIssuesView) findIssuesWithRanges(query string) ([]string, [][]app.MatchRange, []bool) {
 	view.refetchIfNeeded(query)
-	return FormatJiraIssuesWithRanges(view.issues)
+	if strings.TrimSpace(query) != "" {
+		view.issues = orderAlignedFirst(view.issues, searchForStatus, searchForUser, searchForLabel)
+	}
+	rows, ranges := FormatJiraIssuesWithRanges(view.issues)
+	dimmed := make([]bool, len(view.issues))
+	for i := range view.issues {
+		dimmed[i] = issueHasExcludedStatus(&view.issues[i], excludedStatuses)
+	}
+	return rows, ranges, dimmed
 }
 
 // queryIsNumericWithProject reports whether the given query is purely numeric
@@ -503,7 +514,15 @@ func (view *searchIssuesView) searchForIssues(query string) []jira.Issue {
 		// JQL's `key ~ "PROJ-N*"` does a real key prefix match (not a
 		// summary text match), so `53` won't pick up COINS-153 by accident.
 		jql = fmt.Sprintf(`project=%s AND key ~ "%s-%s*" ORDER BY key DESC`, view.project.Id, view.project.Key, q)
+	case q != "":
+		// Active text search: drop every filter (status/assignee/label/excluded)
+		// from the server query so any project issue matching the term is
+		// returned — "find anything the JQL would return". Filter semantics move
+		// client-side: filter-aligned issues float up (input-order tiebreak under
+		// the fuzzy sort) and excluded-status issues are shown dimly and last.
+		jql = BuildSearchIssuesJql(view.project, q, nil, nil, "", nil, currentOrderBy())
 	default:
+		// No query = browsing: filters are a hard intersection.
 		jql = BuildSearchIssuesJql(view.project, q, searchForStatus, searchForUser, searchForLabel, excludedStatuses, currentOrderBy())
 	}
 	issues, err := view.api.SearchJql(jql)

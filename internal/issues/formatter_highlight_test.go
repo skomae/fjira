@@ -75,7 +75,9 @@ func Test_rangeProvider_highlightAndSelection(t *testing.T) {
 	defer screen.Fini()
 	app.CreateNewAppWithScreen(screen)
 
-	provider := func(q string) ([]string, [][]app.MatchRange) { return rows, ranges }
+	provider := func(q string) ([]string, [][]app.MatchRange, []bool) {
+		return rows, ranges, make([]bool, len(rows))
+	}
 	ff := app.NewFuzzyFindWithRangeProvider("t", provider)
 	ff.SetDebounceDisabled(true)
 	ff.SetQuery("login")

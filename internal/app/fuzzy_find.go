@@ -6,6 +6,7 @@ import (
 	"github.com/bep/debounce"
 	"github.com/gdamore/tcell/v2"
 	"github.com/sahilm/fuzzy"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -40,6 +41,7 @@ type FuzzyFind struct {
 	rangesProvider rangesProvider
 	matchTargets   []string
 	targetMaps     [][]int
+	dimmed         []bool
 
 	boldMatchStyle   tcell.Style
 	cursorStyle      tcell.Style
@@ -48,6 +50,12 @@ type FuzzyFind struct {
 	boldStyle        tcell.Style
 	titleStyle       tcell.Style
 	defaultStyle     tcell.Style
+	dimStyle         tcell.Style
+}
+
+// isDimmed reports whether the given match's row is flagged dimmed.
+func (f *FuzzyFind) isDimmed(m fuzzy.Match) bool {
+	return m.Index >= 0 && m.Index < len(f.dimmed) && f.dimmed[m.Index]
 }
 
 type FuzzyFindResult struct {
@@ -65,11 +73,12 @@ type MatchRange struct {
 	End   int
 }
 
-// rangesProvider supplies, for a query, the display records AND the matchable
-// byte ranges within each record (index-aligned with the returned records).
-// Returning it from a single call keeps records and ranges strictly parallel,
-// so match.Index stays a valid row identity for selection.
-type rangesProvider func(query string) (records []string, ranges [][]MatchRange)
+// rangesProvider supplies, for a query, the display records, the matchable byte
+// ranges within each record, and a per-record "dimmed" flag (all index-aligned).
+// Returning them from a single call keeps everything strictly parallel, so
+// match.Index stays a valid row identity for selection. Dimmed records are drawn
+// in a muted style and sorted last (see the post-match partition in Update).
+type rangesProvider func(query string) (records []string, ranges [][]MatchRange, dimmed []bool)
 
 // buildMatchTarget projects the matchable ranges of a display record into a
 // single string used for fuzzy matching, and returns a mapping from each byte
@@ -141,6 +150,7 @@ func NewFuzzyFind(title string, records []string) *FuzzyFind {
 		boldStyle:        DefaultStyle().Bold(true),
 		titleStyle:       DefaultStyle().Italic(true).Foreground(Color("finder.title")),
 		defaultStyle:     DefaultStyle(),
+		dimStyle:         DefaultStyle().Foreground(Color("details.foreground")),
 	}
 }
 
@@ -170,6 +180,7 @@ func NewFuzzyFindWithProvider(title string, recordsProvider func(query string) [
 		boldStyle:        DefaultStyle().Bold(true),
 		titleStyle:       DefaultStyle().Italic(true).Foreground(Color("finder.title")),
 		defaultStyle:     DefaultStyle(),
+		dimStyle:         DefaultStyle().Foreground(Color("details.foreground")),
 	}
 }
 
@@ -229,9 +240,31 @@ func (f *FuzzyFind) Update() {
 	} else {
 		f.matches = fuzzy.Find(f.query, f.records)
 	}
+	f.sortDimmedLast()
 	f.fuzzyStatus = fmt.Sprintf("%d/%d", len(f.matches), len(f.records))
 	f.selected = ClampInt(f.selected, 0, f.matches.Len()-1)
 	f.dirty = false
+}
+
+// sortDimmedLast stably moves dimmed rows to the end of the current match list
+// while preserving the fuzzy-score order within the non-dimmed and dimmed
+// groups. This is the one place ordering overrides relevance: excluded-status
+// issues always sort last, no matter how well they match. No-op when no rows
+// are dimmed (e.g. the browse path, or non-range finders).
+func (f *FuzzyFind) sortDimmedLast() {
+	if len(f.dimmed) == 0 {
+		return
+	}
+	// Never sort the empty-query match list: there f.matches aliases the shared
+	// f.matchesAll (line in Update), so an in-place sort would corrupt the
+	// canonical set. Browse mode also has no dimmed rows, so this is a no-op
+	// anyway — the guard just makes the safety explicit rather than incidental.
+	if len(f.query) == 0 {
+		return
+	}
+	sort.SliceStable(f.matches, func(i, j int) bool {
+		return !f.isDimmed(f.matches[i]) && f.isDimmed(f.matches[j])
+	})
 }
 
 func (f *FuzzyFind) ForceUpdate() {
@@ -375,6 +408,10 @@ func (f *FuzzyFind) drawRecords(screen tcell.Screen) {
 		match := f.matches[index]
 		currentStyleDefault = f.defaultStyle
 		currentStyleBold = f.boldMatchStyle
+		if f.isDimmed(match) {
+			currentStyleDefault = f.dimStyle
+			currentStyleBold = f.dimStyle
+		}
 		if index == f.selected {
 			DrawText(screen, 0, row, f.cursorStyle, WriteIndicator)
 			currentStyleDefault = f.highlightDefault
@@ -395,8 +432,9 @@ func (f *FuzzyFind) drawRecords(screen tcell.Screen) {
 
 func (f *FuzzyFind) updateRecordsFromSupplier() {
 	if f.rangesProvider != nil {
-		records, ranges := f.rangesProvider(f.query)
+		records, ranges, dimmed := f.rangesProvider(f.query)
 		f.records = records
+		f.dimmed = dimmed
 		f.matchTargets = make([]string, len(records))
 		f.targetMaps = make([][]int, len(records))
 		for i, record := range records {
@@ -410,6 +448,7 @@ func (f *FuzzyFind) updateRecordsFromSupplier() {
 		f.records = f.recordsProvider(f.query)
 		f.matchTargets = nil
 		f.targetMaps = nil
+		f.dimmed = nil
 	}
 	f.matchesAll = nil
 	for i, record := range f.records {

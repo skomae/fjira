@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -41,4 +42,35 @@ func Test_buildMatchTarget_outOfBoundsRangeSkipped(t *testing.T) {
 	target, mapping := buildMatchTarget("abc", []MatchRange{{Start: 0, End: 3}, {Start: 5, End: 10}})
 	assert.Equal(t, "abc ", target) // second range contributes only the separator
 	assert.Equal(t, []int{0, 1, 2, -1}, mapping)
+}
+
+// Dimmed rows must sort last while keeping the fuzzy-score order within each
+// group, and match.Index must stay pointing at the right record.
+func Test_rangeProvider_dimmedSortLast(t *testing.T) {
+	screen := tcell.NewSimulationScreen("utf-8")
+	_ = screen.Init() //nolint:errcheck
+	defer screen.Fini()
+	CreateNewAppWithScreen(screen)
+
+	// three records all matching "bug"; index 1 is dimmed (e.g. excluded status)
+	records := []string{"AAA-1 login bug", "AAA-2 payment bug", "AAA-3 signup bug"}
+	ranges := [][]MatchRange{
+		{{0, len(records[0])}},
+		{{0, len(records[1])}},
+		{{0, len(records[2])}},
+	}
+	dimmed := []bool{false, true, false}
+	provider := func(q string) ([]string, [][]MatchRange, []bool) { return records, ranges, dimmed }
+	ff := NewFuzzyFindWithRangeProvider("t", provider)
+	ff.SetDebounceDisabled(true)
+	ff.SetQuery("bug")
+	ff.ForceUpdate()
+
+	matches := ff.Matches()
+	assert.Len(t, matches, 3)
+	// the dimmed record (index 1) must be last, regardless of its fuzzy score
+	assert.Equal(t, 1, matches[len(matches)-1].Index)
+	// the non-dimmed records come first
+	assert.NotEqual(t, 1, matches[0].Index)
+	assert.NotEqual(t, 1, matches[1].Index)
 }
