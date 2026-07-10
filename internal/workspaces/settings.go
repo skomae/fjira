@@ -13,6 +13,26 @@ import (
 type Settings struct {
 	Current    string `json:"current" yaml:"current"`
 	Workspaces map[string]WorkspaceSettings
+	// IssueFilters remembers the issue-navigator filters (by status, assignee,
+	// label, excluded statuses) the user last viewed, keyed per connection and
+	// project so they're restored on the next launch. Key: "<workspace>/<projectId>".
+	IssueFilters map[string]ProjectIssueFilters `json:"issueFilters,omitempty" yaml:"issueFilters,omitempty"`
+}
+
+// ProjectIssueFilters is the persisted, network-free snapshot of the issue
+// navigator's filter state. Only primitive fields are stored (ids + human
+// names); the jira structs are reconstructed inline on restore, so no API
+// round-trip is needed to repopulate the filters or their top-bar labels.
+type ProjectIssueFilters struct {
+	StatusId          string   `json:"statusId,omitempty" yaml:"statusId,omitempty"`
+	StatusName        string   `json:"statusName,omitempty" yaml:"statusName,omitempty"`
+	AssigneeAccountId string   `json:"assigneeAccountId,omitempty" yaml:"assigneeAccountId,omitempty"`
+	AssigneeName      string   `json:"assigneeName,omitempty" yaml:"assigneeName,omitempty"`
+	AssigneeDisplay   string   `json:"assigneeDisplay,omitempty" yaml:"assigneeDisplay,omitempty"`
+	Label             string   `json:"label,omitempty" yaml:"label,omitempty"`
+	ExcludedStatusIds []string `json:"excludedStatusIds,omitempty" yaml:"excludedStatusIds,omitempty"`
+	// ExcludedStatusNames is index-aligned with ExcludedStatusIds.
+	ExcludedStatusNames []string `json:"excludedStatusNames,omitempty" yaml:"excludedStatusNames,omitempty"`
 }
 
 type WorkspaceSettings struct {
@@ -115,6 +135,34 @@ func (s *userHomeSettingsStorage) createOrGetSettings() (*Settings, error) {
 		}
 	}
 	return &settings, nil
+}
+
+// WriteIssueFilters persists the issue-navigator filters under the given key
+// ("<workspace>/<projectId>"). An empty ProjectIssueFilters is stored as an
+// explicit "no filters" entry so restore can distinguish it from a project the
+// user has never filtered.
+func (s *userHomeSettingsStorage) WriteIssueFilters(key string, filters ProjectIssueFilters) error {
+	settings, err := s.createOrGetSettings()
+	if err != nil {
+		return err
+	}
+	if settings.IssueFilters == nil {
+		settings.IssueFilters = map[string]ProjectIssueFilters{}
+	}
+	settings.IssueFilters[key] = filters
+	return s.writeSettings(settings)
+}
+
+// ReadIssueFilters returns the saved filters for the given key and whether an
+// entry existed. found=false means the project was never filtered, so callers
+// should treat it as "clear all filters".
+func (s *userHomeSettingsStorage) ReadIssueFilters(key string) (ProjectIssueFilters, bool, error) {
+	settings, err := s.createOrGetSettings()
+	if err != nil {
+		return ProjectIssueFilters{}, false, err
+	}
+	f, ok := settings.IssueFilters[key]
+	return f, ok, nil
 }
 
 func (s *userHomeSettingsStorage) ReadCurrentWorkspace() (string, error) {

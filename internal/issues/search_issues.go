@@ -107,6 +107,11 @@ func (view *searchIssuesView) Init() {
 		view.bottomBar.RemoveItem(int(ui.ActionSearchByStatus))
 		view.bottomBar.RemoveItem(int(ui.ActionSearchByAssignee))
 	}
+	// Restore the by-status/assignee/label/excluded filters the user last
+	// viewed for this project (load-or-clear, so another project's filters
+	// never leak in). Runs before the first query so JQL and top bar reflect
+	// the restored state immediately.
+	restoreFilters(view.project)
 	go view.runIssuesFuzzyFind()
 	go view.handleSearchActions()
 }
@@ -298,6 +303,7 @@ func (view *searchIssuesView) runSelectStatus() {
 		if status.Index >= 0 && len(ss) > 0 {
 			searchForStatus = &ss[status.Index]
 			view.dirty = true
+			saveFilters(view.project)
 		}
 		go view.runIssuesFuzzyFind()
 		go view.handleSearchActions()
@@ -327,6 +333,7 @@ func (view *searchIssuesView) runExcludeStatus() {
 				if !dup {
 					excludedStatuses = append(excludedStatuses, selected)
 					view.dirty = true
+					saveFilters(view.project)
 				}
 			}
 		}
@@ -338,6 +345,7 @@ func (view *searchIssuesView) runExcludeStatus() {
 func (view *searchIssuesView) runClearExcludedStatuses() {
 	excludedStatuses = nil
 	view.dirty = true
+	saveFilters(view.project)
 	go view.runIssuesFuzzyFind()
 	go view.handleSearchActions()
 }
@@ -353,6 +361,7 @@ func (view *searchIssuesView) runSelectUser() {
 		if user.Index >= 0 && len(*us) > 0 {
 			searchForUser = &(*us)[user.Index]
 			view.dirty = true
+			saveFilters(view.project)
 		}
 		go view.runIssuesFuzzyFind()
 		go view.handleSearchActions()
@@ -369,6 +378,7 @@ func (view *searchIssuesView) runSelectLabel() {
 		if label.Index >= 0 && len(view.labels) > 0 {
 			searchForLabel = view.labels[label.Index]
 			view.dirty = true
+			saveFilters(view.project)
 		}
 		go view.runIssuesFuzzyFind()
 		go view.handleSearchActions()
