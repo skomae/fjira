@@ -91,13 +91,17 @@ upstream PRs; the rest are personal-fit features.
   comment threads; complements the existing Up/Down/Tab/Backtab
   one-line scrolling.
 - **`d` edits the description in-app** — opens a text-writer modal
-  pre-populated with the current description. F1 saves via a new
+  pre-populated with the current description. F2 saves via a new
   `DoUpdateDescription` API method that PUTs to
   `/rest/api/2/issue/<id>`. Esc cancels.
 - **Text writer cursor positioning** — the editor is now a proper
-  in-place editor with arrow-key navigation, Home/End, Shift
-  modifiers for larger jumps, Delete/Backspace at cursor, mid-text
-  insertion. Useful for both descriptions and comments.
+  in-place editor with arrow-key navigation, Home/End, PgUp/PgDn,
+  Shift modifiers for larger jumps, Delete/Backspace at cursor,
+  mid-text insertion. Useful for both descriptions and comments.
+- **`Ctrl-G` opens the text in `$EDITOR`** — hands off to your
+  `$EDITOR` (or `$VISUAL`) for anything longer than a quick edit;
+  whatever you save is pulled back in. A non-zero editor exit
+  (e.g. vim `:cq`) leaves the text untouched.
 
 ### Atlassian Cloud compatibility
 

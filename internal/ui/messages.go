@@ -82,6 +82,7 @@ const (
 	MessageYes                       = "Yes "
 	MessageOpen                      = "Open "
 	MessageSave                      = "Save "
+	MessageEditInEditor              = "Edit in $EDITOR "
 	MessageScroll                    = "Scroll "
 	MessageNavigate                  = "Navigate "
 	MessageMoveIssue                 = "Move issue "

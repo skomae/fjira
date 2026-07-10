@@ -2,6 +2,8 @@ package ui
 
 import (
 	"bytes"
+	"os"
+	"os/exec"
 	"strings"
 	"unicode"
 
@@ -39,6 +41,7 @@ type TextWriterArgs struct {
 func NewTextWriterView(args *TextWriterArgs) app.View {
 	bottomBar := CreateBottomLeftBar()
 	bottomBar.AddItem(NewSaveBarItem())
+	bottomBar.AddItem(NewEditInEditorBarItem())
 	bottomBar.AddItem(NewCancelBarItem())
 	if args.MaxLength == 0 {
 		args.MaxLength = 150
@@ -119,8 +122,8 @@ func (view *TextWriterView) Draw(screen tcell.Screen) {
 	app.DrawText(screen, 1, 2, view.headerStyle, view.args.Header)
 
 	// Calculate text area dimensions - account for gutters
-	textWidth := view.screenX - 4                    // Leave margin (1) + gutters (1) on both sides
-	textHeight := view.screenY - view.textStartY - 3 // Leave space for bottom bar
+	textWidth := view.screenX - 4       // Leave margin (1) + gutters (1) on both sides
+	textHeight := view.textAreaHeight() // Leave space for bottom bar
 
 	if textWidth <= 0 || textHeight <= 0 {
 		view.bottomBar.Draw(screen)
@@ -178,8 +181,13 @@ func (view *TextWriterView) Draw(screen tcell.Screen) {
 			cursorX := view.getCursorScreenX(cursorCol, displayText, leftTruncated, textWidth)
 			if cursorX >= 2 && cursorX < view.screenX-2 {
 				cursorChar := ' '
-				if cursorX-2 < len(displayText) {
-					cursorChar = rune(displayText[cursorX-2])
+				// cursorX-2 is a rune column into displayText, so index the rune
+				// slice — byte-indexing displayText picks the wrong glyph (and a
+				// bogus mid-sequence byte) whenever the line has multi-byte runes.
+				displayRunes := []rune(displayText)
+				idx := cursorX - 2
+				if idx >= 0 && idx < len(displayRunes) {
+					cursorChar = displayRunes[idx]
 				}
 				screen.SetContent(cursorX, screenY, cursorChar, nil, view.cursorStyle)
 			}
@@ -259,6 +267,19 @@ func (view *TextWriterView) getCursorLine() int {
 	return line
 }
 
+// textAreaHeight returns the number of text rows visible between the header and
+// the bottom bar.
+func (view *TextWriterView) textAreaHeight() int {
+	return view.screenY - view.textStartY - 3
+}
+
+// pageSize is the number of lines PageUp/PageDown moves the cursor. It uses the
+// shared app.ScrollPageSize so a page-jump feels the same as in the issue
+// detail view.
+func (view *TextWriterView) pageSize() int {
+	return app.ScrollPageSize(view.screenY)
+}
+
 func (view *TextWriterView) Update() {
 	view.bottomBar.Update()
 }
@@ -299,12 +320,21 @@ func (view *TextWriterView) HandleKeyEvent(ev *tcell.EventKey) {
 		} else {
 			view.moveCursorDownBy(1)
 		}
+	case tcell.KeyPgUp:
+		view.moveCursorUpBy(view.pageSize())
+	case tcell.KeyPgDn:
+		view.moveCursorDownBy(view.pageSize())
 	case tcell.KeyHome:
 		view.moveCursorToLineStart()
 		view.updateDesiredCol()
 	case tcell.KeyEnd:
 		view.moveCursorToLineEnd()
 		view.updateDesiredCol()
+	case tcell.KeyCtrlG:
+		// Hand off editing to the user's $EDITOR. Routed through the app
+		// routine so tcell is suspended while the child process owns the
+		// terminal (Render() must not draw to a suspended screen).
+		view.openInExternalEditor()
 	case tcell.KeyEnter:
 		// Insert newline at cursor position
 		view.insertTextAtCursor("\n")
@@ -493,7 +523,7 @@ func (view *TextWriterView) ensureCursorVisible() {
 	}
 
 	cursorLine := view.getCursorLine()
-	textHeight := view.screenY - view.textStartY - 3
+	textHeight := view.textAreaHeight()
 
 	// Vertical scrolling only
 	if cursorLine < view.scrollY {
@@ -514,4 +544,106 @@ func (view *TextWriterView) handleBottomBarActions() {
 		view.args.TextConsumer(view.buffer.String())
 	}
 	go view.args.GoBack()
+}
+
+// resolveEditor returns the user's configured editor command, preferring
+// $VISUAL over $EDITOR (the conventional precedence). Empty if neither is set.
+func resolveEditor() string {
+	if v := strings.TrimSpace(os.Getenv("VISUAL")); v != "" {
+		return v
+	}
+	return strings.TrimSpace(os.Getenv("EDITOR"))
+}
+
+// openInExternalEditor suspends the TUI, drops the current text into a temp
+// file, opens it in the user's $EDITOR (or $VISUAL), and applies whatever the
+// editor saved. The heavy lifting runs on the app routine so tcell is suspended
+// while the child process owns the terminal.
+func (view *TextWriterView) openInExternalEditor() {
+	editor := resolveEditor()
+	if editor == "" {
+		app.GetApp().RunOnAppRoutine(func() {
+			app.Error("$EDITOR is not set — cannot open external editor")
+		})
+		return
+	}
+	app.GetApp().RunOnAppRoutine(func() {
+		edited, ok := view.runExternalEditor(editor)
+		if ok {
+			view.applyExternalText(edited)
+		}
+	})
+}
+
+// runExternalEditor writes the current text to a temp file, blocks on the
+// editor process with the terminal handed over to it, and reads the result
+// back. It returns the edited text and whether the round-trip succeeded.
+func (view *TextWriterView) runExternalEditor(editor string) (string, bool) {
+	tmp, err := os.CreateTemp("", "fjira-*.md")
+	if err != nil {
+		app.Error("Could not create temp file: " + err.Error())
+		return "", false
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if _, err := tmp.WriteString(view.text); err != nil {
+		_ = tmp.Close()
+		app.Error("Could not write temp file: " + err.Error())
+		return "", false
+	}
+	if err := tmp.Close(); err != nil {
+		app.Error("Could not write temp file: " + err.Error())
+		return "", false
+	}
+
+	// $EDITOR may include arguments, e.g. "code --wait" or "vim -u NONE".
+	parts := strings.Fields(editor)
+	args := append(parts[1:], tmpPath)
+
+	var editorErr error
+	suspendErr := app.GetApp().RunWithScreenSuspended(func() {
+		cmd := exec.Command(parts[0], args...) //nolint:gosec // editor is user-provided by design
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		editorErr = cmd.Run()
+	})
+	if suspendErr != nil {
+		app.Error("Could not suspend screen for editor: " + suspendErr.Error())
+		return "", false
+	}
+	if editorErr != nil {
+		// A non-zero editor exit is the conventional "abort" signal (e.g. `:cq`
+		// in vim). Discard whatever is in the file and keep the current text.
+		app.Error("Editor exited without saving: " + editorErr.Error())
+		return "", false
+	}
+
+	content, err := os.ReadFile(tmpPath)
+	if err != nil {
+		app.Error("Could not read edited file: " + err.Error())
+		return "", false
+	}
+	return string(content), true
+}
+
+// applyExternalText replaces the buffer with text produced by the external
+// editor and refreshes all derived cursor/scroll state. A single trailing
+// newline (added by most editors) is stripped so round-tripping is stable.
+//
+// No MaxLength enforcement here: the keystroke path (insertTextAtCursor) does
+// not enforce it either, and $EDITOR is the paradigm case for long,
+// multi-paragraph text — silently truncating it would surprise the user. If
+// length limiting is ever wanted it belongs on both input paths, not just this
+// one.
+func (view *TextWriterView) applyExternalText(text string) {
+	text = strings.TrimSuffix(text, "\n")
+	view.text = text
+	view.cursorPos = len([]rune(text))
+	view.syncBuffer()
+	view.updateTextLines()
+	view.updateDesiredCol()
+	view.ensureCursorVisible()
+	app.GetApp().SetDirty()
 }

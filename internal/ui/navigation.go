@@ -204,14 +204,31 @@ func NewOpenBarItem() *app.ActionBarItem {
 	}
 }
 
+// NewSaveBarItem binds save to F2, not F1 — F1 is easy to mistouch (often
+// mapped to Help), and an accidental save in the description/comment editor is
+// annoying.
 func NewSaveBarItem() *app.ActionBarItem {
 	return &app.ActionBarItem{
 		Id:         int(ActionYes),
 		Text1:      MessageSave,
-		Text2:      "[F1]",
+		Text2:      "[F2]",
 		Text1Style: bottomBarItemDefaultStyle(),
 		Text2Style: bottomBarActionBarKeyBold(),
-		TriggerKey: tcell.KeyF1,
+		TriggerKey: tcell.KeyF2,
+	}
+}
+
+// NewEditInEditorBarItem is a display-only hint (no trigger key). Ctrl-G is
+// handled directly in TextWriterView.HandleKeyEvent so it runs on the app
+// routine rather than the action-channel goroutine.
+func NewEditInEditorBarItem() *app.ActionBarItem {
+	return &app.ActionBarItem{
+		Text1:       MessageEditInEditor,
+		Text2:       "[C-g]",
+		Text1Style:  bottomBarItemDefaultStyle(),
+		Text2Style:  bottomBarActionBarKeyBold(),
+		TriggerKey:  -1,
+		TriggerRune: -1,
 	}
 }
 
