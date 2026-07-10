@@ -68,26 +68,52 @@ type detailRow struct {
 	dimValue string
 }
 
-// buildDetailRows returns the fixed set of rows shown in the issue's Details
-// box: priority, type, and created/updated timestamps. The row count is
-// constant so the surrounding scroll math (view.detailsLines) never drifts
-// between Draw and Resize; empty values render blank rather than being
-// dropped. now is injected so relative-time rendering stays deterministic.
+// buildDetailRows returns the rows shown in the issue's Details box: the
+// parent/epic link (when set), priority, type, and created/updated timestamps.
+// The row count is derived from the returned slice (see view.detailsLines /
+// detailLabelWidth), so an omitted parent row keeps the scroll math correct.
+// Empty values render blank rather than being dropped; now is injected so
+// relative-time rendering stays deterministic.
 func buildDetailRows(issue *jira.Issue, now time.Time) []detailRow {
-	return []detailRow{
-		{label: ui.MessageDetailPriority, value: issue.Fields.Priority.Name},
-		{label: ui.MessageDetailType, value: issue.Fields.Type.Name},
-		{
+	rows := make([]detailRow, 0, 5)
+	if row, ok := parentDetailRow(issue); ok {
+		rows = append(rows, row)
+	}
+	return append(rows,
+		detailRow{label: ui.MessageDetailPriority, value: issue.Fields.Priority.Name},
+		detailRow{label: ui.MessageDetailType, value: issue.Fields.Type.Name},
+		detailRow{
 			label:    ui.MessageDetailCreated,
 			value:    app.FormatRelativeTime(issue.Fields.Created, now),
 			dimValue: app.FormatAbsoluteTime(issue.Fields.Created),
 		},
-		{
+		detailRow{
 			label:    ui.MessageDetailUpdated,
 			value:    app.FormatRelativeTime(issue.Fields.Updated, now),
 			dimValue: app.FormatAbsoluteTime(issue.Fields.Updated),
 		},
+	)
+}
+
+// parentDetailRow builds the Details row for the issue's parent link, and false
+// when there is none. The parent is an epic (label "Epic") or a regular ticket
+// (label "Parent"), distinguished by the parent's issue type. The human-readable
+// summary is the primary value; the parent key follows in the dimmer style, e.g.
+// "Epic   Auth Revamp (COINS-100)" or "Parent  Fix login (COINS-50)".
+func parentDetailRow(issue *jira.Issue) (detailRow, bool) {
+	parent := issue.Fields.Parent
+	if parent.Key == "" {
+		return detailRow{}, false
 	}
+	label := ui.MessageDetailParent
+	if strings.EqualFold(parent.Fields.Type.Name, "Epic") {
+		label = ui.MessageDetailEpic
+	}
+	return detailRow{
+		label:    label,
+		value:    parent.Fields.Summary,
+		dimValue: parent.Key,
+	}, true
 }
 
 // detailLabelWidth returns the widest label so values line up in a column.

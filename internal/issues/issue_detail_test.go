@@ -44,11 +44,62 @@ func Test_buildDetailRows_empty_timestamps(t *testing.T) {
 	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
 	issue := &jira.Issue{} // no created/updated set
 	rows := buildDetailRows(issue, now)
-	// Empty timestamps yield empty value AND dimValue, so Draw emits no stray "()".
+	// No parent set, so timestamps are at indices 2 and 3 (Priority, Type, then
+	// Created, Updated). Empty timestamps yield empty value AND dimValue, so
+	// Draw emits no stray "()".
+	assert.Len(t, rows, 4)
 	assert.Empty(t, rows[2].value)
 	assert.Empty(t, rows[2].dimValue)
 	assert.Empty(t, rows[3].value)
 	assert.Empty(t, rows[3].dimValue)
+}
+
+func Test_parentDetailRow(t *testing.T) {
+	t.Run("no parent -> omitted", func(t *testing.T) {
+		_, ok := parentDetailRow(&jira.Issue{})
+		assert.False(t, ok)
+	})
+
+	t.Run("epic parent -> Epic label, summary + key", func(t *testing.T) {
+		issue := &jira.Issue{}
+		issue.Fields.Parent.Key = "COINS-100"
+		issue.Fields.Parent.Fields.Summary = "Auth Revamp"
+		issue.Fields.Parent.Fields.Type.Name = "Epic"
+		row, ok := parentDetailRow(issue)
+		assert.True(t, ok)
+		assert.Equal(t, detailRow{label: ui.MessageDetailEpic, value: "Auth Revamp", dimValue: "COINS-100"}, row)
+	})
+
+	t.Run("ticket parent -> Parent label, title + key", func(t *testing.T) {
+		issue := &jira.Issue{}
+		issue.Fields.Parent.Key = "COINS-50"
+		issue.Fields.Parent.Fields.Summary = "Fix the login flow"
+		issue.Fields.Parent.Fields.Type.Name = "Task"
+		row, ok := parentDetailRow(issue)
+		assert.True(t, ok)
+		assert.Equal(t, detailRow{label: ui.MessageDetailParent, value: "Fix the login flow", dimValue: "COINS-50"}, row)
+	})
+
+	t.Run("epic type match is case-insensitive", func(t *testing.T) {
+		issue := &jira.Issue{}
+		issue.Fields.Parent.Key = "COINS-7"
+		issue.Fields.Parent.Fields.Type.Name = "epic"
+		row, _ := parentDetailRow(issue)
+		assert.Equal(t, ui.MessageDetailEpic, row.label)
+	})
+}
+
+func Test_buildDetailRows_prepends_parent(t *testing.T) {
+	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	issue := &jira.Issue{}
+	issue.Fields.Parent.Key = "COINS-100"
+	issue.Fields.Parent.Fields.Summary = "Auth Revamp"
+	issue.Fields.Parent.Fields.Type.Name = "Epic"
+	rows := buildDetailRows(issue, now)
+	// Parent leads the box, so it precedes Priority/Type/Created/Updated.
+	assert.Len(t, rows, 5)
+	assert.Equal(t, detailRow{label: ui.MessageDetailEpic, value: "Auth Revamp", dimValue: "COINS-100"}, rows[0])
+	assert.Equal(t, ui.MessageDetailPriority, rows[1].label)
 }
 
 // renderVisibleRows draws the view and returns the visible screen buffer split
@@ -100,6 +151,9 @@ func detailTestIssue(comments int) *jira.Issue {
 	issue.Fields.Updated = "2022-02-22T00:27:19.792+0100"
 	issue.Fields.Status = jira.Status{Name: "Done"}
 	issue.Fields.Labels = []string{"alpha", "beta"}
+	issue.Fields.Parent.Key = "JWC-1"
+	issue.Fields.Parent.Fields.Summary = "Parent epic title"
+	issue.Fields.Parent.Fields.Type.Name = "Epic"
 	for i := 1; i <= comments; i++ {
 		issue.Fields.Comment.Comments = append(issue.Fields.Comment.Comments, jira.Comment{
 			Body:    fmt.Sprintf("COMMENT-MARKER-%d body text", i),
@@ -122,6 +176,30 @@ func Test_issueView_draws_details_box(t *testing.T) {
 	for _, want := range []string{ui.MessageDetails, "Priority", "High", "Bug"} {
 		assert.Contains(t, joined, want, "Details box should render %q", want)
 	}
+}
+
+// The parent/epic link renders as its own Details row: the summary as the
+// primary value and the key in the dimmer style. The fixture's parent is an
+// Epic, so the row is labelled "Epic".
+func Test_issueView_draws_parent_row(t *testing.T) {
+	const w, h = 100, 60
+	screen := newDetailTestScreen(t, w, h)
+	defer screen.Fini()
+	view := NewIssueView(detailTestIssue(1), nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.Resize(w, h)
+	renderVisibleRows(view, screen)
+
+	joined := strings.Join(renderVisibleRows(view, screen), "\n")
+	assert.Contains(t, joined, ui.MessageDetailEpic, "parent row should be labelled Epic")
+	assert.Contains(t, joined, "Parent epic title", "parent summary should render")
+	assert.Contains(t, joined, "JWC-1", "parent key should render")
+
+	// The parent key is the dim parenthetical; the summary uses the default fg.
+	sumFg, sumOk := fgOnRowContaining(screen, "JWC-1", "Parent epic title")
+	keyFg, keyOk := fgOnRowContaining(screen, "JWC-1", "JWC-1")
+	assert.True(t, sumOk && keyOk, "parent row parts should be on screen")
+	assert.Equal(t, app.Color("default.foreground"), sumFg, "parent summary uses the default foreground")
+	assert.Equal(t, app.Color("details.foreground"), keyFg, "parent key uses the dim header color")
 }
 
 // fgOnRowContaining returns the foreground color of the first cell of `needle`,

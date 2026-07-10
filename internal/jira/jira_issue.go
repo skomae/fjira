@@ -44,6 +44,19 @@ type IssueFields struct {
 		Name string `json:"name"`
 	} `json:"priority"`
 	Created string `json:"created"`
+	// Parent is the standard Jira parent link. For a story it is the epic; for
+	// a sub-task it is the containing ticket. Modern Jira (v2/v3, Cloud and
+	// recent Server) exposes both through this one field, distinguished by
+	// Parent.Fields.Type.Name (== "Epic" for an epic). Zero-valued when unset.
+	Parent struct {
+		Key    string `json:"key"`
+		Fields struct {
+			Summary string `json:"summary"`
+			Type    struct {
+				Name string `json:"name"`
+			} `json:"issuetype"`
+		} `json:"fields"`
+	} `json:"parent"`
 }
 
 type descriptionUpdateRequestBody struct {
