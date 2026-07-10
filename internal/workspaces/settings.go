@@ -33,6 +33,9 @@ type ProjectIssueFilters struct {
 	ExcludedStatusIds []string `json:"excludedStatusIds,omitempty" yaml:"excludedStatusIds,omitempty"`
 	// ExcludedStatusNames is index-aligned with ExcludedStatusIds.
 	ExcludedStatusNames []string `json:"excludedStatusNames,omitempty" yaml:"excludedStatusNames,omitempty"`
+	// SortByUpdated is the F9 sort toggle: true = ORDER BY updated, false =
+	// ORDER BY status (the default). Absent in older config unmarshals to false.
+	SortByUpdated bool `json:"sortByUpdated,omitempty" yaml:"sortByUpdated,omitempty"`
 }
 
 type WorkspaceSettings struct {

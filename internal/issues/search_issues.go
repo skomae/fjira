@@ -126,6 +126,9 @@ func (view *searchIssuesView) Init() {
 	// never leak in). Runs before the first query so JQL and top bar reflect
 	// the restored state immediately.
 	restoreFilters(view.project)
+	// Sync the F9 label to the restored sort mode — the bar item's initial
+	// label was set at construction from the pre-restore global.
+	view.updateSortBarItem()
 	go view.runIssuesFuzzyFind()
 	go view.handleSearchActions()
 }
@@ -350,6 +353,7 @@ func (view *searchIssuesView) runToggleSort() {
 	sortByUpdated = !sortByUpdated
 	view.updateSortBarItem()
 	view.dirty = true
+	saveFilters(view.project)
 	go view.runIssuesFuzzyFind()
 	go view.handleSearchActions()
 }

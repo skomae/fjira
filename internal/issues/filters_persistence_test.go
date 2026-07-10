@@ -20,6 +20,7 @@ func Test_saveAndRestoreFilters_roundTrip(t *testing.T) {
 		{Id: "20", Name: "Done"},
 		{Id: "30", Name: "Rejected"},
 	}
+	sortByUpdated = true
 
 	// when - persist, wipe live state, then restore
 	saveFilters(project)
@@ -39,6 +40,7 @@ func Test_saveAndRestoreFilters_roundTrip(t *testing.T) {
 	assert.Equal(t, "Done", excludedStatuses[0].Name)
 	assert.Equal(t, "30", excludedStatuses[1].Id)
 	assert.Equal(t, "Rejected", excludedStatuses[1].Name)
+	assert.True(t, sortByUpdated, "sort mode should be restored")
 }
 
 func Test_restoreFilters_unknownProjectClears(t *testing.T) {
@@ -50,17 +52,19 @@ func Test_restoreFilters_unknownProjectClears(t *testing.T) {
 	searchForUser = &jira.User{AccountId: "acc-1", DisplayName: "Jane Doe"}
 	searchForLabel = "backend"
 	excludedStatuses = []*jira.IssueStatus{{Id: "20", Name: "Done"}}
+	sortByUpdated = true
 	saveFilters(coins)
 
 	// when - switching to a project with no saved filters (COINS's state still live)
 	other := &jira.Project{Id: "FOO", Key: "FOO", Name: "Foo"}
 	restoreFilters(other)
 
-	// then - load-or-clear: no leak from COINS
+	// then - load-or-clear: no leak from COINS, including the sort mode
 	assert.Nil(t, searchForStatus)
 	assert.Nil(t, searchForUser)
 	assert.Equal(t, "", searchForLabel)
 	assert.Nil(t, excludedStatuses)
+	assert.False(t, sortByUpdated, "sort mode must reset for a never-saved project")
 }
 
 func resetFilterGlobals() {
@@ -68,4 +72,5 @@ func resetFilterGlobals() {
 	searchForUser = nil
 	searchForLabel = ""
 	excludedStatuses = nil
+	sortByUpdated = false
 }

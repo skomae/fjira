@@ -33,6 +33,7 @@ func saveFilters(project *jira.Project) {
 			f.ExcludedStatusNames = append(f.ExcludedStatusNames, es.Name)
 		}
 	}
+	f.SortByUpdated = sortByUpdated
 	_ = workspaces.SaveIssueFilters(project.Id, f)
 }
 
@@ -56,6 +57,7 @@ func restoreFilters(project *jira.Project) {
 		searchForUser = nil
 		searchForLabel = ""
 		excludedStatuses = nil
+		sortByUpdated = false
 		return
 	}
 	if f.StatusId != "" {
@@ -81,4 +83,9 @@ func restoreFilters(project *jira.Project) {
 		}
 		excludedStatuses = append(excludedStatuses, &jira.IssueStatus{Id: id, Name: name})
 	}
+	// Unconditional assignment: sortByUpdated is a process-global shared across
+	// projects, so it must be set to the saved value (not OR'd in), or one
+	// project's sort mode would leak into another. Same load-or-clear invariant
+	// as the filters above.
+	sortByUpdated = f.SortByUpdated
 }
