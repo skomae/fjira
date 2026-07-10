@@ -9,6 +9,7 @@ import (
 	"github.com/mk-5/fjira/internal/ui"
 	"math"
 	"strings"
+	"time"
 )
 
 type issueView struct {
@@ -24,8 +25,10 @@ type issueView struct {
 	scrollY           int
 	descriptionLines  int
 	commentsLines     int
+	detailsLines      int
 	maxScrollY        int
 	body              string
+	detailRows        []string
 	summaryLen        int
 	labels            string
 	labelsLen         int
@@ -53,15 +56,60 @@ const (
 	labelsDelimiter     = " | "
 )
 
+// detailRow is one aligned "label   value" line inside the Details box.
+type detailRow struct {
+	label string
+	value string
+}
+
+// buildDetailRows returns the fixed set of rows shown in the issue's Details
+// box: priority, type, and human-friendly created/updated timestamps. The row
+// count is constant so the surrounding scroll math (view.detailsLines) never
+// drifts between Draw and Resize; empty values render blank rather than being
+// dropped. now is injected so relative-time rendering stays deterministic.
+func buildDetailRows(issue *jira.Issue, now time.Time) []detailRow {
+	return []detailRow{
+		{ui.MessageDetailPriority, issue.Fields.Priority.Name},
+		{ui.MessageDetailType, issue.Fields.Type.Name},
+		{ui.MessageDetailCreated, app.FormatRelativeTime(issue.Fields.Created, now)},
+		{ui.MessageDetailUpdated, app.FormatRelativeTime(issue.Fields.Updated, now)},
+	}
+}
+
+// formatDetailRows renders the detail rows as aligned "label   value" strings,
+// padding every label to the widest so values line up in a column.
+func formatDetailRows(rows []detailRow) []string {
+	labelWidth := 0
+	for _, r := range rows {
+		if len(r.label) > labelWidth {
+			labelWidth = len(r.label)
+		}
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, fmt.Sprintf("%-*s  %s", labelWidth, r.label, r.value))
+	}
+	return out
+}
+
 func NewIssueView(issue *jira.Issue, goBackFn func(), api jira.Api) app.View {
 	bottomBar := ui.CreateBottomActionBarWithItems(issueNavItems)
 	bottomBar.AddItem(ui.CreateScrollBarItem())
 	bottomBar.AddItem(ui.NewCancelBarItem())
 
 	issueActionBar := ui.CreateIssueTopBar(issue)
+	// The top bar already carries key/reporter/assignee/type/status; append a
+	// relative "Updated" so freshness is visible at a glance. Formatting lives
+	// here (not in ui.CreateIssueTopBar) because app.FormatRelativeTime is the
+	// shared helper and this keeps the shared top-bar builder untouched.
+	issueActionBar.AddItem(ui.NewAppTopBarItem(&ui.NavItemConfig{
+		Text1: ui.MessageLabelUpdated,
+		Text2: app.ActionBarLabel(app.FormatRelativeTime(issue.Fields.Updated, time.Now())),
+	}))
 	cs := comments.ParseCommentsFromIssue(issue, 1000, 1000)
 	ls := strings.Join(issue.Fields.Labels, labelsDelimiter)
 	labelsLen := len(ls)
+	detailRows := formatDetailRows(buildDetailRows(issue, time.Now()))
 
 	return &issueView{
 		api:           api,
@@ -73,6 +121,7 @@ func NewIssueView(issue *jira.Issue, goBackFn func(), api jira.Api) app.View {
 		comments:      cs,
 		labels:        ls,
 		labelsLen:     labelsLen,
+		detailRows:    detailRows,
 		summaryLen:    len(issue.Fields.Summary),
 		goBackFn:      goBackFn,
 		boxTitleStyle: app.DefaultStyle().Foreground(app.Color("details.foreground")),
@@ -101,6 +150,18 @@ func (view *issueView) Draw(screen tcell.Screen) {
 			app.DrawTextLimited(screen, 3, view.lastY+2, view.descriptionLimitX, view.lastY+2, view.defaultStyle, view.labels)
 			view.lastY = view.lastY + 3
 		}
+
+		// Details box: title row (lastY+1) + one row per detail starting at
+		// lastY+2, with the bottom border at lastY+detailsLines so content sits
+		// strictly inside it (detailsLines = len(rows)+2, set in Resize).
+		// view.detailsLines is the single source of truth shared with Resize's
+		// maxScrollY math so Draw and scroll never drift.
+		app.DrawBox(screen, 1, view.lastY+1, view.descriptionLimitX+4, view.lastY+view.detailsLines, view.boxTitleStyle)
+		app.DrawText(screen, 2, view.lastY+1, view.boxTitleStyle, ui.MessageDetails)
+		for i, row := range view.detailRows {
+			app.DrawText(screen, 3, view.lastY+2+i, view.defaultStyle, row)
+		}
+		view.lastY = view.lastY + view.detailsLines + 1
 
 		app.DrawBox(screen, 1, view.lastY+1, view.descriptionLimitX+4, view.lastY+1+view.descriptionLines+4, view.boxTitleStyle)
 		app.DrawText(screen, 2, view.lastY+1, view.boxTitleStyle, ui.MessageDescription)
@@ -141,8 +202,17 @@ func (view *issueView) Resize(screenX, screenY int) {
 		commentsLines = commentsLines + comment.Lines + 3
 	}
 	view.commentsLines = commentsLines + len(view.comments) + 1
+	// Details box row span: title + one row per detail + bottom border.
+	// Single source of truth shared with Draw (see Draw's Details section).
+	view.detailsLines = len(view.detailRows) + 2
 	topAndBottomBarSize := 12
-	view.maxScrollY = app.ClampInt(int(math.Abs(float64(screenY-topAndBottomBarSize-view.descriptionLines-view.commentsLines-10))), 0, 2000)
+	// maxScrollY is the content height beyond the viewport (the existing
+	// heuristic), plus a screenY/3 buffer so scrolling to the end lands on an
+	// obviously-empty region — making "no more content" unmistakable. Larger
+	// scrollY pushes content up, so the buffer enlarges the cap; it can never
+	// hide the last line (that's reached before the cap).
+	scrollBuffer := screenY / 3
+	view.maxScrollY = app.ClampInt(int(math.Abs(float64(screenY-topAndBottomBarSize-view.descriptionLines-view.commentsLines-view.detailsLines-10)))+scrollBuffer, 0, 2000)
 	view.bottomBar.Resize(screenX, screenY)
 	view.topBar.Resize(screenX, screenY)
 	if view.fuzzyFind != nil {

@@ -97,6 +97,14 @@ func Test_shouldDisplayIssueView(t *testing.T) {
 	_ = screen.Init() //nolint:errcheck
 	defer screen.Fini()
 	app.InitTestApp(screen)
+	// Tall screen so every section (summary, labels, details, description and
+	// the comment body) is on-screen at scrollY=0; the Details box plus the
+	// scroll buffer push content past a default 25-row viewport otherwise.
+	// InitTestApp re-runs screen.Init() (resetting to 80x25), so size after it
+	// and mirror the dimensions onto the app that the view's Resize reads.
+	screen.SetSize(120, 60)
+	app.GetApp().ScreenX = 120
+	app.GetApp().ScreenY = 60
 	RegisterGoTo()
 	api := jira.NewJiraApiMock(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.String(), "issue") {

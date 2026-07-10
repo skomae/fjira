@@ -1,4 +1,4 @@
-package issues
+package app
 
 import (
 	"testing"
@@ -7,15 +7,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_formatRelativeTime(t *testing.T) {
+func Test_FormatRelativeTime(t *testing.T) {
 	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
 	ts := func(d time.Duration) string {
-		return now.Add(-d).Format(jiraUpdatedLayout)
+		return now.Add(-d).Format(JiraTimestampLayout)
 	}
 	tests := []struct {
-		name    string
-		updated string
-		want    string
+		name string
+		in   string
+		want string
 	}{
 		{"empty string", "", ""},
 		{"unparseable", "not-a-date", ""},
@@ -32,11 +32,11 @@ func Test_formatRelativeTime(t *testing.T) {
 		{"months", ts(90 * 24 * time.Hour), "3 months ago"},
 		{"last year", ts(400 * 24 * time.Hour), "last year"},
 		{"years", ts(800 * 24 * time.Hour), "2 years ago"},
-		{"future clamps to just now", now.Add(time.Hour).Format(jiraUpdatedLayout), "just now"},
+		{"future clamps to just now", now.Add(time.Hour).Format(JiraTimestampLayout), "just now"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, formatRelativeTime(tt.updated, now))
+			assert.Equal(t, tt.want, FormatRelativeTime(tt.in, now))
 		})
 	}
 }
