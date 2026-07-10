@@ -160,3 +160,42 @@ func Test_httpJiraApi_GetIssueDetailed(t *testing.T) {
 		})
 	}
 }
+
+// Proves the standard fields.parent object deserializes into IssueFields.Parent
+// (the JSON tags are right) using a body shaped like a real Jira Cloud response.
+// A wrong tag would silently leave Parent zero-valued and hide the epic/parent
+// row in the UI, so this guards that end-to-end mapping, not just the Go structs.
+func Test_httpJiraApi_GetIssueDetailed_parent(t *testing.T) {
+	body := `{
+        "id": "10011",
+        "key": "COINS-692",
+        "fields": {
+            "summary": "child story",
+            "parent": {
+                "id": "10455401",
+                "key": "COINS-179",
+                "fields": {
+                    "summary": "Ecomm Activation Recommendations",
+                    "issuetype": { "id": "10000", "name": "Epic", "subtask": false }
+                }
+            }
+        }
+    }`
+	api := NewJiraApiMock(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(body))
+	})
+	got, err := api.GetIssueDetailed("COINS-692")
+	if err != nil {
+		t.Fatalf("GetIssueDetailed() error = %v", err)
+	}
+	if got.Fields.Parent.Key != "COINS-179" {
+		t.Errorf("Parent.Key = %q, want COINS-179", got.Fields.Parent.Key)
+	}
+	if got.Fields.Parent.Fields.Summary != "Ecomm Activation Recommendations" {
+		t.Errorf("Parent.Fields.Summary = %q", got.Fields.Parent.Fields.Summary)
+	}
+	if got.Fields.Parent.Fields.Type.Name != "Epic" {
+		t.Errorf("Parent.Fields.Type.Name = %q, want Epic", got.Fields.Parent.Fields.Type.Name)
+	}
+}
