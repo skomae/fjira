@@ -68,6 +68,7 @@ const (
 	MessageDetailUpdated             = "Updated"
 	MessageDetailEpic                = "Epic"
 	MessageDetailParent              = "Parent"
+	MessageDetailRelated             = "Related"
 	MessageChangeStatus              = "Change status "
 	MessageByStatus                  = "by status "
 	MessageByAssignee                = "by assignee "

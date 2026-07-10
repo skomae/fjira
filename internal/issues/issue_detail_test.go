@@ -141,6 +141,20 @@ func newDetailTestScreen(t *testing.T, w, h int) tcell.SimulationScreen {
 	return screen
 }
 
+// ref builds an IssueRef with the given key, summary, and statusCategory key
+// ("done"/"new"/"indeterminate"). refPtr is the pointer form for issue links.
+func ref(key, summary, categoryKey string) jira.IssueRef {
+	r := jira.IssueRef{Key: key}
+	r.Fields.Summary = summary
+	r.Fields.Status.StatusCategory.Key = categoryKey
+	return r
+}
+
+func refPtr(key, summary, categoryKey string) *jira.IssueRef {
+	r := ref(key, summary, categoryKey)
+	return &r
+}
+
 func detailTestIssue(comments int) *jira.Issue {
 	issue := &jira.Issue{Key: "JWC-9", Id: "9"}
 	issue.Fields.Summary = "A summary line"
@@ -154,6 +168,9 @@ func detailTestIssue(comments int) *jira.Issue {
 	issue.Fields.Parent.Key = "JWC-1"
 	issue.Fields.Parent.Fields.Summary = "Parent epic title"
 	issue.Fields.Parent.Fields.Type.Name = "Epic"
+	// One done sub-task, one linked (outward) not-done ticket.
+	issue.Fields.Subtasks = []jira.IssueRef{ref("JWC-11", "Child task one", "done")}
+	issue.Fields.IssueLinks = []jira.IssueLink{{OutwardIssue: refPtr("JWC-20", "A related ticket", "new")}}
 	for i := 1; i <= comments; i++ {
 		issue.Fields.Comment.Comments = append(issue.Fields.Comment.Comments, jira.Comment{
 			Body:    fmt.Sprintf("COMMENT-MARKER-%d body text", i),
@@ -200,6 +217,120 @@ func Test_issueView_draws_parent_row(t *testing.T) {
 	assert.True(t, sumOk && keyOk, "parent row parts should be on screen")
 	assert.Equal(t, app.Color("default.foreground"), sumFg, "parent summary uses the default foreground")
 	assert.Equal(t, app.Color("details.foreground"), keyFg, "parent key uses the dim header color")
+}
+
+func Test_buildRelatedRows(t *testing.T) {
+	t.Run("none -> nil", func(t *testing.T) {
+		assert.Empty(t, buildRelatedRows(&jira.Issue{}))
+	})
+
+	t.Run("subtasks then links, done gets a checkmark", func(t *testing.T) {
+		issue := &jira.Issue{}
+		issue.Fields.Subtasks = []jira.IssueRef{
+			ref("A-1", "done child", "done"),
+			ref("A-2", "open child", "new"),
+		}
+		issue.Fields.IssueLinks = []jira.IssueLink{
+			{InwardIssue: refPtr("B-9", "a blocker", "indeterminate")},
+			{OutwardIssue: refPtr("C-3", "a done link", "done")},
+			{}, // malformed: neither side set -> skipped
+		}
+		rows := buildRelatedRows(issue)
+		assert.Equal(t, []string{
+			"✓ A-1 done child",
+			"  A-2 open child",
+			"  B-9 a blocker",
+			"✓ C-3 a done link",
+		}, rows)
+	})
+}
+
+// The related column renders its header, child tickets, and links, with a
+// checkmark only on done items.
+func Test_issueView_draws_related_column(t *testing.T) {
+	const w, h = 100, 60
+	screen := newDetailTestScreen(t, w, h)
+	defer screen.Fini()
+	view := NewIssueView(detailTestIssue(1), nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.Resize(w, h)
+
+	joined := strings.Join(renderVisibleRows(view, screen), "\n")
+	assert.Contains(t, joined, ui.MessageDetailRelated, "related column header")
+	assert.Contains(t, joined, "✓ JWC-11 Child task one", "done subtask gets a checkmark")
+	assert.Contains(t, joined, "JWC-20 A related ticket", "not-done link has no checkmark")
+	// The not-done link must NOT carry a checkmark.
+	assert.NotContains(t, joined, "✓ JWC-20", "not-done link should have no checkmark")
+}
+
+// A Details box taller than the viewport (many related tickets, no comments)
+// must (a) leave the last related row reachable at some scroll position — the
+// box itself, not just the comments, can now exceed the screen height — and
+// (b) still reach the true content bottom at maxScrollY with the buffer intact.
+func Test_issueView_tall_details_box_scrolls(t *testing.T) {
+	const w, h = 80, 24
+	screen := newDetailTestScreen(t, w, h)
+	defer screen.Fini()
+	issue := detailTestIssue(0) // no comments; height comes from the related column
+	for i := 1; i <= 30; i++ {
+		issue.Fields.Subtasks = append(issue.Fields.Subtasks, ref(fmt.Sprintf("SUB-%d", i), "child", "new"))
+	}
+	issue.Fields.Subtasks[29] = ref("SUB-LAST", "the final child", "done")
+	view := NewIssueView(issue, nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.Resize(w, h)
+
+	// The box (30+ related rows) is taller than the 24-row screen.
+	assert.Greater(t, view.detailsLines, h, "the Details box should exceed the viewport")
+
+	// The last related row is mid-document (Details precedes Description), so it
+	// is reachable at some scroll offset — scan to prove it never gets skipped.
+	reachable := false
+	for s := 0; s <= view.maxScrollY; s++ {
+		view.scrollY = s
+		if strings.Contains(strings.Join(renderVisibleRows(view, screen), "\n"), "SUB-LAST") {
+			reachable = true
+			break
+		}
+	}
+	assert.True(t, reachable, "last related row must be reachable while scrolling")
+
+	// At the bottom, the buffer is preserved even though the box drove the height.
+	view.scrollY = view.maxScrollY
+	rows := renderVisibleRows(view, screen)
+	// The Description is the true bottom content (it follows the Details box);
+	// it must be visible at maxScrollY, not scrolled off past the buffer.
+	assert.Contains(t, strings.Join(rows, "\n"), "Line5", "true bottom content visible at maxScrollY")
+	blankTrailing := 0
+	for y := h - 3; y >= 0; y-- {
+		if strings.TrimSpace(rows[y]) == "" {
+			blankTrailing++
+		} else {
+			break
+		}
+	}
+	assert.GreaterOrEqual(t, blankTrailing, h/3, "buffer preserved even when the box drives the height")
+}
+
+// An issue with no children/links renders the Details box as a single, full-
+// width column: no "Related" header, and the left column may use the full box
+// width (leftColLimit's descriptionLimitX+2 branch).
+func Test_issueView_no_related_single_column(t *testing.T) {
+	const w, h = 100, 60
+	screen := newDetailTestScreen(t, w, h)
+	defer screen.Fini()
+	issue := detailTestIssue(1)
+	issue.Fields.Subtasks = nil
+	issue.Fields.IssueLinks = nil
+	view := NewIssueView(issue, nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.Resize(w, h)
+
+	assert.Empty(t, view.relatedRows, "no related rows")
+	assert.Equal(t, view.descriptionLimitX+2, view.leftColLimit(), "left column spans the full box width")
+
+	joined := strings.Join(renderVisibleRows(view, screen), "\n")
+	assert.Contains(t, joined, ui.MessageDetails, "Details box still renders")
+	assert.NotContains(t, joined, ui.MessageDetailRelated, "no Related header without related tickets")
+	// With the full width, the absolute date is not clipped by a related column.
+	assert.Contains(t, joined, "2 Oct 2021 10:34 PM +0200", "absolute date renders un-clipped at full width")
 }
 
 // fgOnRowContaining returns the foreground color of the first cell of `needle`,

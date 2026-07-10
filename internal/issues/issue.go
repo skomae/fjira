@@ -30,6 +30,8 @@ type issueView struct {
 	body              string
 	detailRows        []detailRow
 	detailLabelWidth  int
+	relatedRows       []string
+	relatedColStart   int
 	summaryLen        int
 	labels            string
 	labelsLen         int
@@ -116,6 +118,39 @@ func parentDetailRow(issue *jira.Issue) (detailRow, bool) {
 	}, true
 }
 
+const (
+	// doneMark leads a related-ticket line when its status is in the "done"
+	// category; notDoneMark is the same width in blank so keys stay aligned.
+	doneMark    = "✓ "
+	notDoneMark = "  "
+)
+
+// buildRelatedRows renders the right-column entries: the issue's child tickets
+// (subtasks) followed by its related/linked tickets. Each line is
+// "<mark><KEY> <summary>" as a single string so it can be drawn (and clipped)
+// in one pass — a done ticket gets a leading ✓. Returns nil when there are none.
+func buildRelatedRows(issue *jira.Issue) []string {
+	rows := make([]string, 0, len(issue.Fields.Subtasks)+len(issue.Fields.IssueLinks))
+	for i := range issue.Fields.Subtasks {
+		rows = append(rows, relatedLine(&issue.Fields.Subtasks[i]))
+	}
+	for _, link := range issue.Fields.IssueLinks {
+		if ref := link.Linked(); ref != nil {
+			rows = append(rows, relatedLine(ref))
+		}
+	}
+	return rows
+}
+
+// relatedLine formats one related ticket as "<mark><KEY> <summary>".
+func relatedLine(ref *jira.IssueRef) string {
+	mark := notDoneMark
+	if ref.Fields.Status.IsDone() {
+		mark = doneMark
+	}
+	return fmt.Sprintf("%s%s %s", mark, ref.Key, ref.Fields.Summary)
+}
+
 // detailLabelWidth returns the widest label so values line up in a column.
 func detailLabelWidth(rows []detailRow) int {
 	labelWidth := 0
@@ -158,6 +193,7 @@ func NewIssueView(issue *jira.Issue, goBackFn func(), api jira.Api) app.View {
 		labelsLen:        labelsLen,
 		detailRows:       detailRows,
 		detailLabelWidth: detailLabelWidth(detailRows),
+		relatedRows:      buildRelatedRows(issue),
 		summaryLen:       len(issue.Fields.Summary),
 		goBackFn:         goBackFn,
 		boxTitleStyle:    app.DefaultStyle().Foreground(app.Color("details.foreground")),
@@ -191,21 +227,36 @@ func (view *issueView) Draw(screen tcell.Screen) {
 			view.lastY = view.lastY + 3
 		}
 
-		// Details box: title row (lastY+1) + one row per detail starting at
-		// lastY+2, with the bottom border at lastY+detailsLines so content sits
-		// strictly inside it (detailsLines = len(rows)+2, set in Resize).
-		// view.detailsLines is the single source of truth shared with Resize's
-		// maxScrollY math so Draw and scroll never drift.
+		// Details box. The left column holds the metadata rows; the right column
+		// (when the issue has children/links) lists related tickets. The box is
+		// as tall as the taller column: detailsLines = max(left, right)+2, the
+		// single source of truth shared with Resize's maxScrollY math, so Draw
+		// and scroll never drift. Content sits at rows lastY+2.., bottom border
+		// at lastY+detailsLines. Both columns clip so long text can't bleed.
 		app.DrawBox(screen, 1, view.lastY+1, view.descriptionLimitX+4, view.lastY+view.detailsLines, view.boxTitleStyle)
 		app.DrawText(screen, 2, view.lastY+1, view.boxTitleStyle, ui.MessageDetails)
+		leftLimit := view.leftColLimit()
 		for i, row := range view.detailRows {
 			// Label column (padded) + value in the default style; the absolute
 			// date, when present, follows in a dimmer style so the human-readable
-			// relative time reads as primary.
+			// relative time reads as primary. Both parts clip at the left-column
+			// edge so they never spill into the related column.
 			left := fmt.Sprintf("%-*s  %s", view.detailLabelWidth, row.label, row.value)
-			app.DrawText(screen, 3, view.lastY+2+i, view.defaultStyle, left)
+			app.DrawTextLimited(screen, 3, view.lastY+2+i, leftLimit, view.lastY+2+i, view.defaultStyle, left)
 			if row.dimValue != "" {
-				app.DrawText(screen, 3+len(left)+1, view.lastY+2+i, view.dimStyle, "("+row.dimValue+")")
+				dimX := 3 + len(left) + 1
+				if dimX <= leftLimit {
+					app.DrawTextLimited(screen, dimX, view.lastY+2+i, leftLimit, view.lastY+2+i, view.dimStyle, "("+row.dimValue+")")
+				}
+			}
+		}
+		if len(view.relatedRows) > 0 {
+			app.DrawText(screen, view.relatedColStart, view.lastY+1, view.boxTitleStyle, ui.MessageDetailRelated)
+			for i, line := range view.relatedRows {
+				// One clipped pass per line — the leading ✓ is multibyte, so we
+				// never index past it; the whole "<mark><KEY> <summary>" is drawn
+				// and truncated at the box's right inner edge.
+				app.DrawTextLimited(screen, view.relatedColStart, view.lastY+2+i, view.descriptionLimitX+2, view.lastY+2+i, view.defaultStyle, line)
 			}
 		}
 		view.lastY = view.lastY + view.detailsLines + 1
@@ -238,6 +289,16 @@ func (view *issueView) Update() {
 	}
 }
 
+// leftColLimit is the rightmost x the metadata (left) column may draw to. When
+// a related column is present it stops one cell short of it; otherwise it uses
+// the box's full inner width.
+func (view *issueView) leftColLimit() int {
+	if len(view.relatedRows) > 0 {
+		return view.relatedColStart - 2
+	}
+	return view.descriptionLimitX + 2
+}
+
 func (view *issueView) Resize(screenX, screenY int) {
 	view.screenY = screenY
 	view.descriptionLimitX = app.ClampInt(int(math.Floor(float64(screenX)*0.9)), 1, 10000)
@@ -249,9 +310,14 @@ func (view *issueView) Resize(screenX, screenY int) {
 		commentsLines = commentsLines + comment.Lines + 3
 	}
 	view.commentsLines = commentsLines + len(view.comments) + 1
-	// Details box row span: title + one row per detail + bottom border.
-	// Single source of truth shared with Draw (see Draw's Details section).
-	view.detailsLines = len(view.detailRows) + 2
+	// Related column starts a little past the box midpoint so the metadata
+	// column keeps its natural (usually wider) share. Only meaningful when
+	// there are related rows to draw.
+	view.relatedColStart = 3 + (view.descriptionLimitX*55)/100
+	// Details box row span: title + max(metadata rows, related rows) + bottom
+	// border. The box is as tall as the taller column. Single source of truth
+	// shared with Draw and the maxScrollY math below.
+	view.detailsLines = app.MaxInt(len(view.detailRows), len(view.relatedRows)) + 2
 	topAndBottomBarSize := 12
 	// maxScrollY is the content height beyond the viewport (the existing
 	// heuristic), plus a screenY/3 buffer so scrolling to the end lands on an

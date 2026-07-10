@@ -10,6 +10,40 @@ type IssueType struct {
 	Name string `json:"name"`
 }
 
+// IssueRef is a lightweight reference to another issue, as embedded in a
+// parent, sub-task, or linked-issue object. The full-fetch response nests only
+// summary/status/issuetype under Fields for these references.
+type IssueRef struct {
+	Key    string `json:"key"`
+	Fields struct {
+		Summary string    `json:"summary"`
+		Status  Status    `json:"status"`
+		Type    IssueType `json:"issuetype"`
+	} `json:"fields"`
+}
+
+// IssueLink is one entry in fields.issuelinks. Each entry carries exactly one
+// of InwardIssue / OutwardIssue (never both); Type names the relationship.
+// Linked returns whichever side is populated.
+type IssueLink struct {
+	Type struct {
+		Name    string `json:"name"`
+		Inward  string `json:"inward"`
+		Outward string `json:"outward"`
+	} `json:"type"`
+	InwardIssue  *IssueRef `json:"inwardIssue,omitempty"`
+	OutwardIssue *IssueRef `json:"outwardIssue,omitempty"`
+}
+
+// Linked returns the issue on whichever side of the link is populated, or nil
+// if the link is malformed (neither side set).
+func (l IssueLink) Linked() *IssueRef {
+	if l.InwardIssue != nil {
+		return l.InwardIssue
+	}
+	return l.OutwardIssue
+}
+
 type Issue struct {
 	Key    string      `json:"key"`
 	Fields IssueFields `json:"Fields"`
@@ -48,15 +82,11 @@ type IssueFields struct {
 	// a sub-task it is the containing ticket. Modern Jira (v2/v3, Cloud and
 	// recent Server) exposes both through this one field, distinguished by
 	// Parent.Fields.Type.Name (== "Epic" for an epic). Zero-valued when unset.
-	Parent struct {
-		Key    string `json:"key"`
-		Fields struct {
-			Summary string `json:"summary"`
-			Type    struct {
-				Name string `json:"name"`
-			} `json:"issuetype"`
-		} `json:"fields"`
-	} `json:"parent"`
+	Parent IssueRef `json:"parent"`
+	// Subtasks are the issue's child tickets; IssueLinks are its related/linked
+	// tickets. Both are empty arrays (never null) when there are none.
+	Subtasks   []IssueRef  `json:"subtasks"`
+	IssueLinks []IssueLink `json:"issuelinks"`
 }
 
 type descriptionUpdateRequestBody struct {
