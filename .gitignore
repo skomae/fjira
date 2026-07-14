@@ -13,3 +13,7 @@ coverage.html
 coverage.txt
 
 dist/
+.pr-body*
+.release-notes*
+.windsurf/
+fjira_debug.log
