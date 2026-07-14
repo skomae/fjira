@@ -31,91 +31,151 @@ before.
 
 ## Improvements over upstream
 
-This fork builds on [mk-5/fjira](https://github.com/mk-5/fjira) with
-a focus on **board navigation, in-app editing, and Atlassian Cloud
-compatibility**. Each item below is a single commit (or small group)
-on top of upstream `master`. Several are good candidates for
-upstream PRs; the rest are personal-fit features.
+This fork builds on [mk-5/fjira](https://github.com/mk-5/fjira) to
+close the gap between "glance at Jira from the terminal" and "actually
+work in it" — faster ways in, sharper search, richer context on a
+ticket, real editing, and the fixes that make Atlassian Cloud usable.
+The bullets are grouped by what you're trying to get done; the
+technical mechanism is kept as the sub-detail. Several items are good
+candidates for upstream PRs; the rest are personal-fit features.
 
-### Board view
+### Jump straight to what you need
 
-- **`--board=<id>` CLI arg** — jump straight to a board view from
-  the shell. `fjira --board=15391`. The fork remembers the last
-  board you viewed and prints its id on shutdown so the next launch
-  is trivially `fjira --board=$(...)`.
-- **F2 assignee filter** — press F2 on a board view to filter
-  visible issues by assignee (fuzzy-find over assignees already
-  loaded on the board). Selecting "All" clears the filter.
-- **Enter opens issue detail; `m` enters move mode** — Enter is the
-  universal "drill in" everywhere else in fjira, so the board view
-  now matches. The original "select an issue and move it across
-  columns" behavior is reachable via the `m` rune.
-- **Issue-aware navigation** — arrow keys skip empty columns and
-  snap to actual issue rows rather than walking through empty
-  space. Up/Down moves between issues in the current column;
-  Left/Right jumps to the first issue of the next non-empty column.
-- **Faster `--board` startup** — `openBoardDirect` passes the
-  already-fetched `BoardConfiguration` through to the goto handler
-  so it doesn't refetch. `GetFilter` is deferred to when actually
-  needed (kanban / no active sprint), saving an unconditional 8s
-  round trip on scrum boards.
-- **Bug fixes** — board scrolling crash when paging past the last
-  column; first column not scrolling back into view after navigating
-  right then left; F2 filter being silently cleared on `Init` re-entry;
-  100% CPU spin from a busy-wait `default:` clause in `handleActions`;
-  concurrent-map-write race in `app.Color()` (now `sync.Once`).
+Fewer keystrokes between the shell and the ticket you care about.
 
-### Issues list
+- **Open a board by id from the shell** — `fjira --board=15391`.
+  The fork remembers the last board you viewed and prints its id on
+  shutdown, so the next launch is trivially `fjira --board=$(...)`.
+- **Faster `--board` startup** — the already-fetched
+  `BoardConfiguration` is threaded through to the goto handler
+  instead of being refetched, and `GetFilter` is deferred until it's
+  actually needed (kanban / no active sprint). That removes an
+  unconditional ~8s round trip on scrum boards.
+- **Board navigation follows the issues, not the grid** — arrow keys
+  skip empty columns and snap to real issue rows. Up/Down moves
+  between issues in the current column; Left/Right jumps to the first
+  issue of the next non-empty column.
+- **Enter drills in, `m` moves** — Enter opens the issue detail on a
+  board (matching every other view in fjira); the original
+  move-across-columns behavior is on the `m` rune.
+- **`Esc` exits cleanly after `--project`** — when launched directly
+  into a project, `Esc` now quits instead of dropping you into a
+  projects list you never opened. Normal drill-in from the projects
+  list is unaffected.
 
-- **Numeric query expands to issue-key prefix match** — when a
-  project is selected and the query is purely numeric, the search
-  uses `key ~ "PROJ-N*"` directly. Typing `53` in COINS matches
-  COINS-53, COINS-530–539, COINS-5300, etc. Doesn't false-match
-  COINS-153 or descriptions containing "53".
-- **F7/F8 exclude-status filter** — F7 stacks status exclusions
-  (multi-select), F8 (only visible while exclusions exist) clears
-  them all. Current excludes show in the top bar as
+### Find the right issue
+
+The issue browser was reworked to make searching and filtering
+precise, and to remember how you like to work.
+
+- **Search matches keys and summaries, nothing else** — fuzzy-find is
+  scoped to the issue key and summary, so typing no longer lights up
+  characters in the type, status, assignee, or date columns. The
+  formatter emits the byte ranges of the matchable columns and a
+  range-aware provider maps matched offsets back to the display row,
+  so highlighting always lands on the right characters.
+- **Search reaches past your active filters** — during a text search,
+  any matching issue in the project surfaces, not just ones passing
+  the current filters. Filter-aligned matches sort first as a soft
+  tiebreak; excluded-status issues still appear but render dimmed and
+  sort last.
+- **Numbers match issue numbers** — a purely numeric query in a
+  selected project searches `key ~ "PROJ-N*"` directly, so `53`
+  matches `PROJ-53`, `PROJ-530`, `PROJ-5300`… and never false-matches
+  `PROJ-153` or a "53" buried in a description. Alphabetic queries
+  can't scatter onto the project prefix either.
+- **Exclude statuses you don't care about** — F7 stacks status
+  exclusions (multi-select); the top bar shows them as
   `Exclude Status: -Done, -Won't Fix`.
-- **F6 Create Issue** — F6 from the board, issues list, or issue
-  detail opens Jira's create-issue modal in your browser with
-  project (and board, where applicable) context pre-populated.
-- **FuzzyFind opt-in "clear on Esc"** — for the issues fuzzy-find
-  only, first Esc clears the query (typo correction without losing
-  project context). Second Esc on empty query still backs out.
-  Ctrl-C still exits immediately. Project / workspace pickers are
-  unaffected.
+- **Your filters and sort order are remembered per project** — the
+  by-status, by-assignee, by-label, and excluded-status filters plus
+  the F9 sort mode (status ↔ updated) are saved per connection ×
+  project in `fjira.yaml` and restored next time you open that
+  project. Only primitive ids/names are stored and the Jira structs
+  are rebuilt inline, so restore needs no API round trip. F8 clears
+  all four filters at once.
+- **More at a glance in the list** — new issue-type (`BUG`, `SPIKE`,
+  `EPIC`, …) and friendly "last updated" columns ("2 hours ago",
+  "yesterday", "last week"). The assignee column is width-clamped so
+  the date lines up.
+- **Forgiving Esc in fuzzy-find** — in the issues fuzzy-find, the
+  first `Esc` clears the query (fix a typo without losing project
+  context); a second `Esc` on an empty query backs out. `Ctrl-C`
+  still exits immediately; project / workspace pickers are unchanged.
 
-### Issue detail
+### Understand an issue at a glance
 
-- **PgUp / PgDn scrolling** — page through long descriptions or
-  comment threads; complements the existing Up/Down/Tab/Backtab
-  one-line scrolling.
-- **`d` edits the description in-app** — opens a text-writer modal
-  pre-populated with the current description. F2 saves via a new
-  `DoUpdateDescription` API method that PUTs to
-  `/rest/api/2/issue/<id>`. Esc cancels.
-- **Text writer cursor positioning** — the editor is now a proper
-  in-place editor with arrow-key navigation, Home/End, PgUp/PgDn,
-  Shift modifiers for larger jumps, Delete/Backspace at cursor,
-  mid-text insertion. Useful for both descriptions and comments.
-- **`Ctrl-G` opens the text in `$EDITOR`** — hands off to your
-  `$EDITOR` (or `$VISUAL`) for anything longer than a quick edit;
-  whatever you save is pulled back in. A non-zero editor exit
-  (e.g. vim `:cq`) leaves the text untouched.
+The issue detail view gained a Details box that answers "what is this,
+and what's it connected to?" without opening a browser.
 
-### Atlassian Cloud compatibility
+- **Metadata up front** — priority, type, and human-friendly
+  created/updated times, plus a relative "Updated" in the top bar.
+  Comment headers show a relative date instead of a raw timestamp.
+- **Relative time with the exact date beside it** — e.g.
+  `2 hours ago (4 Jun 2026 10:35 AM +0200)`, the absolute part
+  dimmed so the relative time reads as primary. Jira reports a numeric
+  offset rather than a named zone, so the offset is shown verbatim.
+- **Parent / epic link** — an issue with a parent leads with
+  `Epic <summary> (KEY)` or `Parent <title> (KEY)`. Uses the standard
+  `fields.parent` object, which covers both cases across modern Cloud
+  and Server — no per-instance Epic-Link customfield is hardcoded.
+- **A "Related" column of connected tickets** — sub-tasks and linked
+  issues in a right-hand column, each with a leading ✓ when its status
+  is in the `done` category (`statusCategory.key == "done"`, robust
+  across workflows). For an **epic**, its child stories aren't in the
+  epic's own payload, so they're fetched with a `parent = "<KEY>"`
+  search issued *after* the view has rendered — the page never blocks
+  on it, and results fill in when they land.
 
-- **Bounded JQL default** — Atlassian Cloud's new
-  `/rest/api/3/search/jql` endpoint rejects unbounded queries.
-  When no project/status/user/label/query is set, fjira now falls
-  back to `created >= -30d ORDER BY status` instead of emitting
-  an empty restriction set that 400s. On-prem Server still works
-  identically.
-- **Expired-token hint** — Atlassian Cloud returns `200` + empty
-  project list for invalid/expired API tokens rather than `401`.
-  When the projects list is empty and the workspace URL is a
-  `*.atlassian.net` host, the flash hint points users at
+### Do the work without leaving the terminal
+
+- **Edit the description in-app** — `d` opens a text-writer modal
+  pre-populated with the current description; F2 saves via a
+  `DoUpdateDescription` call that PUTs to `/rest/api/2/issue/<id>`,
+  `Esc` cancels.
+- **A real in-place text editor** — arrow-key navigation, Home/End,
+  PgUp/PgDn, Shift for larger jumps, Delete/Backspace at the cursor,
+  and mid-text insertion, for both descriptions and comments. The
+  cursor glyph is rune-indexed, so multi-byte characters earlier on a
+  line no longer shift what's drawn under the cursor.
+- **Hand off to `$EDITOR`** — `Ctrl-G` opens the current text in your
+  `$EDITOR` (or `$VISUAL`) for anything longer than a quick edit and
+  pulls the saved result back in; a non-zero editor exit (e.g. vim
+  `:cq`) leaves the text untouched.
+- **Filter a board by assignee** — F2 fuzzy-finds over the assignees
+  already loaded on the board; "All" clears the filter.
+- **Create an issue in context** — F6 from the board, issues list, or
+  issue detail opens Jira's create-issue modal in your browser with
+  the project (and board, where applicable) pre-populated.
+- **Page through long content** — PgUp / PgDn on the issue detail
+  complements the existing one-line Up/Down/Tab/Backtab scrolling.
+
+### Works with Atlassian Cloud
+
+Upstream targets Jira Server; these keep the fork usable against
+`*.atlassian.net`. On-prem Server behaves identically.
+
+- **Bounded default query** — Cloud's newer `/rest/api/3/search/jql`
+  endpoint rejects unbounded queries. When no
+  project/status/user/label/query is set, fjira falls back to
+  `created >= -30d ORDER BY status` instead of emitting an empty
+  restriction set that returns `400`.
+- **Expired-token hint** — Cloud returns `200` + an empty project list
+  for an invalid/expired API token (not `401`). When the projects list
+  is empty on an `*.atlassian.net` host, the flash hint points to
   `https://id.atlassian.com/manage-profile/security/api-tokens`.
+
+### Reliability & correctness fixes
+
+- **Board stability** — crash when paging past the last column; first
+  column not scrolling back into view after navigating right then
+  left; F2 assignee filter silently cleared on `Init` re-entry.
+- **Performance** — eliminated a 100% CPU spin from a busy-wait
+  `default:` clause in `handleActions`; fixed a concurrent-map-write
+  race in `app.Color()` (now guarded by `sync.Once`).
+- **Correct save hint** — the editor save key was rebound from F1 to
+  F2 (F1 is easy to mistouch); the comment/description/JQL hints now
+  say F2 to match.
 
 ## Installation
 
