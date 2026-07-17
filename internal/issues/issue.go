@@ -31,6 +31,7 @@ type issueView struct {
 	detailRows        []detailRow
 	detailLabelWidth  int
 	relatedRows       []string
+	relatedKeys       []string
 	relatedColStart   int
 	summaryLen        int
 	labels            string
@@ -52,6 +53,7 @@ var (
 		ui.NavItemConfig{Action: ui.ActionAddLabel, Text1: ui.MessageLabel, Text2: "[l]", Rune: 'l'},
 		ui.NavItemConfig{Action: ui.ActionCreateIssue, Text1: ui.MessageCreateIssue, Text2: "[F6]", Key: tcell.KeyF6},
 		ui.NavItemConfig{Action: ui.ActionOpen, Text1: ui.MessageOpen, Text2: "[o]", Rune: 'o'},
+		ui.NavItemConfig{Action: ui.ActionJumpToRelated, Text1: ui.MessageJumpToRelated, Text2: "[j]", Rune: 'j'},
 	}
 )
 
@@ -128,32 +130,41 @@ const (
 // buildRelatedRows renders the right-column entries from the issue's own
 // payload: its child tickets (subtasks) followed by its related/linked tickets.
 // Each line is "<mark><KEY> <summary>" as a single string so it can be drawn
-// (and clipped) in one pass — a done ticket gets a leading ✓. Epic children are
-// NOT here (they aren't in the payload); those are fetched separately, see
-// loadEpicChildren. Returns nil when there are none.
-func buildRelatedRows(issue *jira.Issue) []string {
-	rows := make([]string, 0, len(issue.Fields.Subtasks)+len(issue.Fields.IssueLinks))
+// (and clipped) in one pass — a done ticket gets a leading ✓. The parallel keys
+// slice holds each row's bare issue key so the jump modal (see runJumpToRelated)
+// can open the selected ticket without parsing it back out of the display line.
+// Epic children are NOT here (they aren't in the payload); those are fetched
+// separately, see loadEpicChildren. Returns nil,nil when there are none.
+func buildRelatedRows(issue *jira.Issue) (rows []string, keys []string) {
+	n := len(issue.Fields.Subtasks) + len(issue.Fields.IssueLinks)
+	rows = make([]string, 0, n)
+	keys = make([]string, 0, n)
 	for i := range issue.Fields.Subtasks {
 		st := &issue.Fields.Subtasks[i]
 		rows = append(rows, relatedLine(st.Key, st.Fields.Summary, st.Fields.Status))
+		keys = append(keys, st.Key)
 	}
 	for _, link := range issue.Fields.IssueLinks {
 		if ref := link.Linked(); ref != nil {
 			rows = append(rows, relatedLine(ref.Key, ref.Fields.Summary, ref.Fields.Status))
+			keys = append(keys, ref.Key)
 		}
 	}
-	return rows
+	return rows, keys
 }
 
 // relatedRowsFromIssues renders right-column entries from full issues returned
-// by a search (e.g. an epic's children via `parent = KEY`).
-func relatedRowsFromIssues(issues []jira.Issue) []string {
-	rows := make([]string, 0, len(issues))
+// by a search (e.g. an epic's children via `parent = KEY`). Returns the display
+// rows and the parallel bare-key slice (see buildRelatedRows).
+func relatedRowsFromIssues(issues []jira.Issue) (rows []string, keys []string) {
+	rows = make([]string, 0, len(issues))
+	keys = make([]string, 0, len(issues))
 	for i := range issues {
 		it := &issues[i]
 		rows = append(rows, relatedLine(it.Key, it.Fields.Summary, it.Fields.Status))
+		keys = append(keys, it.Key)
 	}
-	return rows
+	return rows, keys
 }
 
 // relatedLine formats one related ticket as "<mark><KEY> <summary>", with a
@@ -195,6 +206,7 @@ func NewIssueView(issue *jira.Issue, goBackFn func(), api jira.Api) app.View {
 	ls := strings.Join(issue.Fields.Labels, labelsDelimiter)
 	labelsLen := len(ls)
 	detailRows := buildDetailRows(issue, time.Now())
+	relatedRows, relatedKeys := buildRelatedRows(issue)
 
 	return &issueView{
 		api:              api,
@@ -208,7 +220,8 @@ func NewIssueView(issue *jira.Issue, goBackFn func(), api jira.Api) app.View {
 		labelsLen:        labelsLen,
 		detailRows:       detailRows,
 		detailLabelWidth: detailLabelWidth(detailRows),
-		relatedRows:      buildRelatedRows(issue),
+		relatedRows:      relatedRows,
+		relatedKeys:      relatedKeys,
 		summaryLen:       len(issue.Fields.Summary),
 		goBackFn:         goBackFn,
 		boxTitleStyle:    app.DefaultStyle().Foreground(app.Color("details.foreground")),
@@ -242,16 +255,18 @@ func (view *issueView) loadEpicChildren() {
 	if err != nil || len(children) == 0 {
 		return
 	}
-	rows := relatedRowsFromIssues(children)
-	app.GetApp().RunOnAppRoutine(func() { view.applyEpicChildren(rows) })
+	rows, keys := relatedRowsFromIssues(children)
+	app.GetApp().RunOnAppRoutine(func() { view.applyEpicChildren(rows, keys) })
 }
 
-// applyEpicChildren appends fetched epic-children rows and reflows the Details
-// box. Enqueued via RunOnAppRoutine so it runs on the render goroutine; the
-// relatedRows write joins the same ambient Resize/Draw sharing the rest of the
-// view already relies on (no view-layer locks anywhere).
-func (view *issueView) applyEpicChildren(rows []string) {
+// applyEpicChildren appends fetched epic-children rows (and their parallel keys,
+// keeping relatedRows/relatedKeys aligned for the jump modal) and reflows the
+// Details box. Enqueued via RunOnAppRoutine so it runs on the render goroutine;
+// the relatedRows write joins the same ambient Resize/Draw sharing the rest of
+// the view already relies on (no view-layer locks anywhere).
+func (view *issueView) applyEpicChildren(rows []string, keys []string) {
 	view.relatedRows = append(view.relatedRows, rows...)
+	view.relatedKeys = append(view.relatedKeys, keys...)
 	view.recomputeDetailsLayout()
 	app.GetApp().SetDirty()
 }
@@ -390,11 +405,16 @@ func (view *issueView) recomputeDetailsLayout() {
 }
 
 func (view *issueView) HandleKeyEvent(ev *tcell.EventKey) {
-	view.bottomBar.HandleKeyEvent(ev)
-	view.topBar.HandleKeyEvent(ev)
+	// When the jump modal is open it owns the keyboard: forward keystrokes only
+	// to it and skip the action bars and scrolling. Otherwise typing the query
+	// (letters, arrows, Tab) would leak through — re-firing the [j] action or
+	// scrolling the issue underneath the modal.
 	if view.fuzzyFind != nil {
 		view.fuzzyFind.HandleKeyEvent(ev)
+		return
 	}
+	view.bottomBar.HandleKeyEvent(ev)
+	view.topBar.HandleKeyEvent(ev)
 	if ev.Key() == tcell.KeyUp || ev.Key() == tcell.KeyTab {
 		view.scrollY = app.ClampInt(view.scrollY-1, 0, view.maxScrollY)
 	}
@@ -475,7 +495,44 @@ func (view *issueView) handleIssueAction() {
 			OpenIssueInBrowser(view.issue, view.api)
 			go view.handleIssueAction()
 			return
+		case ui.ActionJumpToRelated:
+			view.runJumpToRelated()
+			return
 		}
+	}
+}
+
+// runJumpToRelated opens a fuzzy-find modal over the view, prefilled with this
+// issue's related tickets (the same subtasks/links/epic-children shown in the
+// Related column, keyed by relatedKeys). Selecting one navigates to it in the
+// detail view; Esc dismisses the modal and re-arms the action handler. A no-op
+// when there are no related tickets to jump to.
+func (view *issueView) runJumpToRelated() {
+	if len(view.relatedKeys) == 0 {
+		go view.handleIssueAction()
+		return
+	}
+	a := app.GetApp()
+	// Snapshot the rows/keys so a late epic-children append (applyEpicChildren,
+	// on the render goroutine) can't grow relatedRows out from under the index
+	// the fuzzy find hands back — the modal shows the tickets present when it
+	// opened.
+	keys := make([]string, len(view.relatedKeys))
+	copy(keys, view.relatedKeys)
+	rows := make([]string, len(view.relatedRows))
+	copy(rows, view.relatedRows)
+	view.fuzzyFind = app.NewFuzzyFind(ui.MessageJumpToRelatedFuzzyFind, rows)
+	// FuzzyFind.Draw self-initialises its screen size on first render, so no
+	// explicit Resize is needed here; a later terminal resize is forwarded by
+	// the view's own Resize (which guards on fuzzyFind != nil).
+	if chosen := <-view.fuzzyFind.Complete; true {
+		view.fuzzyFind = nil
+		a.ClearNow()
+		if chosen.Index >= 0 && chosen.Index < len(keys) {
+			app.GoTo("issue", keys[chosen.Index], view.goBackFn, view.api)
+			return
+		}
+		go view.handleIssueAction()
 	}
 }
 

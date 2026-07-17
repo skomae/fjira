@@ -28,6 +28,7 @@ const (
 	ActionExcludeStatus
 	ActionClearFilters
 	ActionToggleSort
+	ActionJumpToRelated
 )
 
 type NavItemConfig struct {

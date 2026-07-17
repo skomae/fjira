@@ -287,8 +287,10 @@ func Test_fjiraIssueView_HandleKeyEvent(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// given
+			// No fuzzyFind: scrolling is the no-modal behaviour. When the jump
+			// modal is open it owns the keyboard and these keys drive its
+			// selection instead (covered by Test_issueView_jumpModalOwnsKeyboard).
 			view := NewIssueView(&jira.Issue{Key: "test"}, nil, jira.NewJiraApiMock(nil)).(*issueView)
-			view.fuzzyFind = app.NewFuzzyFind("test", []string{})
 			view.scrollY = 0
 			view.maxScrollY = 100
 
@@ -340,4 +342,72 @@ func Test_fjiraIssueView_HandleKeyEvent(t *testing.T) {
 			assert2.Equal(t, expectedPageSize*2, view.scrollY)
 		})
 	}
+}
+
+// While the jump modal is open it owns the keyboard: scroll keys drive the
+// modal, not the issue view underneath, so scrollY must not move.
+func Test_issueView_jumpModalOwnsKeyboard(t *testing.T) {
+	screen := tcell.NewSimulationScreen("utf-8")
+	_ = screen.Init() //nolint:errcheck
+	defer screen.Fini()
+	app.InitTestApp(screen)
+
+	view := NewIssueView(&jira.Issue{Key: "test"}, nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.fuzzyFind = app.NewFuzzyFind("jump", []string{"A-1 one", "A-2 two"})
+	view.scrollY = 0
+	view.maxScrollY = 100
+
+	view.HandleKeyEvent(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone))
+	view.HandleKeyEvent(tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone))
+
+	assert2.Equal(t, 0, view.scrollY, "scroll keys must not move the view while the modal is open")
+}
+
+// runJumpToRelated with no related tickets is a no-op that re-arms the action
+// handler without opening a modal.
+func Test_issueView_runJumpToRelated_noRelated(t *testing.T) {
+	screen := tcell.NewSimulationScreen("utf-8")
+	_ = screen.Init() //nolint:errcheck
+	defer screen.Fini()
+	app.InitTestApp(screen)
+
+	view := NewIssueView(&jira.Issue{Key: "test"}, nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.relatedKeys = nil
+
+	view.runJumpToRelated()
+
+	assert2.Nil(t, view.fuzzyFind, "no modal should open when there are no related tickets")
+}
+
+// Selecting a related ticket in the jump modal navigates to it and closes the
+// modal. The Complete channel is served on a goroutine so runJumpToRelated's
+// blocking receive returns.
+func Test_issueView_runJumpToRelated_opensSelected(t *testing.T) {
+	screen := tcell.NewSimulationScreen("utf-8")
+	_ = screen.Init() //nolint:errcheck
+	defer screen.Fini()
+	app.InitTestApp(screen)
+
+	var gotKey string
+	app.RegisterGoto("issue", func(args ...interface{}) {
+		gotKey = args[0].(string)
+	})
+
+	view := NewIssueView(&jira.Issue{Key: "test"}, nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.relatedRows = []string{"  A-1 one", "  A-2 two"}
+	view.relatedKeys = []string{"A-1", "A-2"}
+
+	done := make(chan struct{})
+	go func() {
+		view.runJumpToRelated()
+		close(done)
+	}()
+
+	// Wait for the modal to be created, then complete it selecting index 1.
+	assert2.Eventually(t, func() bool { return view.fuzzyFind != nil }, time.Second, 5*time.Millisecond)
+	view.fuzzyFind.Complete <- app.FuzzyFindResult{Index: 1, Match: "  A-2 two"}
+	<-done
+
+	assert2.Equal(t, "A-2", gotKey, "should navigate to the selected related issue")
+	assert2.Nil(t, view.fuzzyFind, "modal should be cleared after selection")
 }

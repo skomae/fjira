@@ -69,6 +69,8 @@ const (
 	MessageDetailEpic                = "Epic"
 	MessageDetailParent              = "Parent"
 	MessageDetailRelated             = "Related"
+	MessageJumpToRelated             = "Jump "
+	MessageJumpToRelatedFuzzyFind    = "Jump to a related issue or ESC to cancel"
 	MessageChangeStatus              = "Change status "
 	MessageByStatus                  = "by status "
 	MessageByAssignee                = "by assignee "
