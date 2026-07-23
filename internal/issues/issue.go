@@ -502,25 +502,44 @@ func (view *issueView) handleIssueAction() {
 	}
 }
 
-// runJumpToRelated opens a fuzzy-find modal over the view, prefilled with this
-// issue's related tickets (the same subtasks/links/epic-children shown in the
-// Related column, keyed by relatedKeys). Selecting one navigates to it in the
-// detail view; Esc dismisses the modal and re-arms the action handler. A no-op
-// when there are no related tickets to jump to.
-func (view *issueView) runJumpToRelated() {
-	if len(view.relatedKeys) == 0 {
-		go view.handleIssueAction()
-		return
+// jumpTargets returns the rows/keys the jump modal offers: the issue's parent
+// or epic (from Fields.Parent, shown in the Details box but not the Related
+// column) prepended to its subtasks/links/epic-children (relatedRows/Keys).
+// Kept separate from relatedRows so adding the parent as a jump target doesn't
+// also duplicate it into the visual Related column or its box-height math.
+func (view *issueView) jumpTargets() (rows []string, keys []string) {
+	n := len(view.relatedRows)
+	if view.issue.Fields.Parent.Key != "" {
+		n++
 	}
-	a := app.GetApp()
+	rows = make([]string, 0, n)
+	keys = make([]string, 0, n)
+	if parent := view.issue.Fields.Parent; parent.Key != "" {
+		rows = append(rows, relatedLine(parent.Key, parent.Fields.Summary, parent.Fields.Status))
+		keys = append(keys, parent.Key)
+	}
+	rows = append(rows, view.relatedRows...)
+	keys = append(keys, view.relatedKeys...)
+	return rows, keys
+}
+
+// runJumpToRelated opens a fuzzy-find modal over the view, prefilled with this
+// issue's jump targets: its parent/epic plus its subtasks/links/epic-children
+// (see jumpTargets). Selecting one navigates to it in the detail view; Esc
+// dismisses the modal and re-arms the action handler. Shows a toast instead of
+// opening the modal when there is nothing to jump to.
+func (view *issueView) runJumpToRelated() {
 	// Snapshot the rows/keys so a late epic-children append (applyEpicChildren,
 	// on the render goroutine) can't grow relatedRows out from under the index
 	// the fuzzy find hands back — the modal shows the tickets present when it
 	// opened.
-	keys := make([]string, len(view.relatedKeys))
-	copy(keys, view.relatedKeys)
-	rows := make([]string, len(view.relatedRows))
-	copy(rows, view.relatedRows)
+	rows, keys := view.jumpTargets()
+	if len(keys) == 0 {
+		app.Error(ui.MessageNoRelatedToJump)
+		go view.handleIssueAction()
+		return
+	}
+	a := app.GetApp()
 	view.fuzzyFind = app.NewFuzzyFind(ui.MessageJumpToRelatedFuzzyFind, rows)
 	// FuzzyFind.Draw self-initialises its screen size on first render, so no
 	// explicit Resize is needed here; a later terminal resize is forwarded by

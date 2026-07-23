@@ -10,6 +10,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/mk-5/fjira/internal/app"
 	"github.com/mk-5/fjira/internal/jira"
+	"github.com/mk-5/fjira/internal/ui"
 	assert2 "github.com/stretchr/testify/assert"
 )
 
@@ -363,20 +364,96 @@ func Test_issueView_jumpModalOwnsKeyboard(t *testing.T) {
 	assert2.Equal(t, 0, view.scrollY, "scroll keys must not move the view while the modal is open")
 }
 
-// runJumpToRelated with no related tickets is a no-op that re-arms the action
-// handler without opening a modal.
-func Test_issueView_runJumpToRelated_noRelated(t *testing.T) {
+// runJumpToRelated with no related tickets AND no parent/epic shows a toast
+// instead of opening a modal.
+func Test_issueView_runJumpToRelated_noTargets_showsToast(t *testing.T) {
+	screen := tcell.NewSimulationScreen("utf-8")
+	_ = screen.Init() //nolint:errcheck
+	defer screen.Fini()
+	a := app.InitTestApp(screen)
+
+	view := NewIssueView(&jira.Issue{Key: "test"}, nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.relatedKeys = nil
+	view.relatedRows = nil
+
+	view.runJumpToRelated()
+
+	assert2.Nil(t, view.fuzzyFind, "no modal should open when there is nothing to jump to")
+	// Render draws the *previous* frame's Show before compositing the new one
+	// (see app.Render), so the toast needs a second pass to land in GetContents.
+	a.Render()
+	a.Render()
+	contents, x, y := screen.GetContents()
+	var buffer bytes.Buffer
+	for i := 0; i < x*y; i++ {
+		buffer.Write(contents[i].Bytes)
+	}
+	assert2.Contains(t, strings.TrimSpace(buffer.String()), ui.MessageNoRelatedToJump, "should show a toast explaining there's nothing to jump to")
+}
+
+// The parent/epic (Fields.Parent) is offered as a jump target even when the
+// issue has no subtasks/links, and jumps to the parent key on selection.
+func Test_issueView_runJumpToRelated_includesParent(t *testing.T) {
 	screen := tcell.NewSimulationScreen("utf-8")
 	_ = screen.Init() //nolint:errcheck
 	defer screen.Fini()
 	app.InitTestApp(screen)
 
-	view := NewIssueView(&jira.Issue{Key: "test"}, nil, jira.NewJiraApiMock(nil)).(*issueView)
+	var gotKey string
+	app.RegisterGoto("issue", func(args ...interface{}) {
+		gotKey = args[0].(string)
+	})
+
+	issue := &jira.Issue{Key: "test"}
+	issue.Fields.Parent.Key = "EPIC-1"
+	issue.Fields.Parent.Fields.Summary = "Parent epic"
+	view := NewIssueView(issue, nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.relatedRows = nil
 	view.relatedKeys = nil
 
-	view.runJumpToRelated()
+	done := make(chan struct{})
+	go func() {
+		view.runJumpToRelated()
+		close(done)
+	}()
 
-	assert2.Nil(t, view.fuzzyFind, "no modal should open when there are no related tickets")
+	assert2.Eventually(t, func() bool { return view.fuzzyFind != nil }, time.Second, 5*time.Millisecond)
+	view.fuzzyFind.Complete <- app.FuzzyFindResult{Index: 0, Match: "  EPIC-1 Parent epic"}
+	<-done
+
+	assert2.Equal(t, "EPIC-1", gotKey, "should navigate to the parent/epic")
+}
+
+// jumpTargets prepends the parent/epic ahead of the related rows/keys, and
+// omits it entirely when the issue has none.
+func Test_issueView_jumpTargets(t *testing.T) {
+	screen := tcell.NewSimulationScreen("utf-8")
+	_ = screen.Init() //nolint:errcheck
+	defer screen.Fini()
+	app.InitTestApp(screen)
+
+	t.Run("no parent -> just related", func(t *testing.T) {
+		view := NewIssueView(&jira.Issue{Key: "test"}, nil, jira.NewJiraApiMock(nil)).(*issueView)
+		view.relatedRows = []string{"  A-1 one"}
+		view.relatedKeys = []string{"A-1"}
+
+		rows, keys := view.jumpTargets()
+		assert2.Equal(t, []string{"  A-1 one"}, rows)
+		assert2.Equal(t, []string{"A-1"}, keys)
+	})
+
+	t.Run("parent prepended ahead of related", func(t *testing.T) {
+		issue := &jira.Issue{Key: "test"}
+		issue.Fields.Parent.Key = "EPIC-1"
+		issue.Fields.Parent.Fields.Summary = "Parent epic"
+		view := NewIssueView(issue, nil, jira.NewJiraApiMock(nil)).(*issueView)
+		view.relatedRows = []string{"  A-1 one"}
+		view.relatedKeys = []string{"A-1"}
+
+		rows, keys := view.jumpTargets()
+		assert2.Equal(t, []string{"  EPIC-1 Parent epic", "  A-1 one"}, rows)
+		assert2.Equal(t, []string{"EPIC-1", "A-1"}, keys)
+	})
 }
 
 // Selecting a related ticket in the jump modal navigates to it and closes the

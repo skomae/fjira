@@ -71,6 +71,7 @@ const (
 	MessageDetailRelated             = "Related"
 	MessageJumpToRelated             = "Jump "
 	MessageJumpToRelatedFuzzyFind    = "Jump to a related issue or ESC to cancel"
+	MessageNoRelatedToJump           = "no related, parent, epic or child tickets to jump to"
 	MessageChangeStatus              = "Change status "
 	MessageByStatus                  = "by status "
 	MessageByAssignee                = "by assignee "
