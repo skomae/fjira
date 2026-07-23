@@ -102,6 +102,12 @@ upstream PRs; the rest are personal-fit features.
   `$EDITOR` (or `$VISUAL`) for anything longer than a quick edit;
   whatever you save is pulled back in. A non-zero editor exit
   (e.g. vim `:cq`) leaves the text untouched.
+- **`j` jumps to a related ticket** — opens a fuzzy-find modal
+  prefilled with the issue's connected tickets: its parent/epic,
+  sub-tasks, linked issues, and any epic children. Type to filter,
+  `Enter` opens the selected ticket in the detail view, `Esc`
+  dismisses. Shows a toast instead of opening the modal when there's
+  nothing to jump to.
 
 ### Atlassian Cloud compatibility
 

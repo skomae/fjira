@@ -222,7 +222,9 @@ func Test_issueView_draws_parent_row(t *testing.T) {
 
 func Test_buildRelatedRows(t *testing.T) {
 	t.Run("none -> nil", func(t *testing.T) {
-		assert.Empty(t, buildRelatedRows(&jira.Issue{}))
+		rows, keys := buildRelatedRows(&jira.Issue{})
+		assert.Empty(t, rows)
+		assert.Empty(t, keys)
 	})
 
 	t.Run("subtasks then links, done gets a checkmark", func(t *testing.T) {
@@ -236,13 +238,16 @@ func Test_buildRelatedRows(t *testing.T) {
 			{OutwardIssue: refPtr("C-3", "a done link", "done")},
 			{}, // malformed: neither side set -> skipped
 		}
-		rows := buildRelatedRows(issue)
+		rows, keys := buildRelatedRows(issue)
 		assert.Equal(t, []string{
 			"✓ A-1 done child",
 			"  A-2 open child",
 			"  B-9 a blocker",
 			"✓ C-3 a done link",
 		}, rows)
+		// keys stay parallel to rows (the malformed link contributes neither),
+		// so the jump modal's selection index maps back to the right ticket.
+		assert.Equal(t, []string{"A-1", "A-2", "B-9", "C-3"}, keys)
 	})
 }
 
@@ -253,8 +258,9 @@ func Test_relatedRowsFromIssues(t *testing.T) {
 	open := jira.Issue{Key: "E-2"}
 	open.Fields.Summary = "open child"
 	open.Fields.Status.StatusCategory.Key = "new"
-	rows := relatedRowsFromIssues([]jira.Issue{done, open})
+	rows, keys := relatedRowsFromIssues([]jira.Issue{done, open})
 	assert.Equal(t, []string{"✓ E-1 done child", "  E-2 open child"}, rows)
+	assert.Equal(t, []string{"E-1", "E-2"}, keys)
 }
 
 // applyEpicChildren appends the fetched rows and reflows the box: after it, the
@@ -275,9 +281,11 @@ func Test_issueView_applyEpicChildren(t *testing.T) {
 
 	// Add more related rows than metadata rows so the box must grow to fit them.
 	children := []string{"✓ CH-1 a", "  CH-2 b", "  CH-3 c", "  CH-4 d", "  CH-5 e", "  CH-6 f"}
-	view.applyEpicChildren(children)
+	childKeys := []string{"CH-1", "CH-2", "CH-3", "CH-4", "CH-5", "CH-6"}
+	view.applyEpicChildren(children, childKeys)
 
 	assert.Equal(t, children, view.relatedRows)
+	assert.Equal(t, childKeys, view.relatedKeys, "keys stay parallel to rows for the jump modal")
 	assert.Greater(t, len(children), len(view.detailRows), "sanity: related now exceeds metadata")
 	assert.Equal(t, len(children)+2, view.detailsLines, "box height reflows to max(metadata, related)+2")
 }
@@ -473,4 +481,32 @@ func Test_issueView_scroll_reaches_bottom_with_buffer(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, blankTrailing, h/3,
 		"scrolling to the bottom should leave >= screenY/3 blank buffer rows")
+}
+
+// The jump modal renders over the issue view prefilled with the related tickets:
+// its prompt is visible and a related-issue row is drawn. Forcing an Update
+// populates the fuzzy find's records from the prefilled rows before drawing.
+func Test_issueView_jumpModal_rendersRelated(t *testing.T) {
+	const w, h = 80, 24
+	screen := newDetailTestScreen(t, w, h)
+	defer screen.Fini()
+	issue := &jira.Issue{Key: "JWC-9"}
+	issue.Fields.Summary = "parent"
+	issue.Fields.Subtasks = []jira.IssueRef{
+		ref("JWC-10", "child one", "new"),
+		ref("JWC-11", "child two", "done"),
+	}
+	view := NewIssueView(issue, nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.Resize(w, h)
+
+	// Open the modal the same way runJumpToRelated does (without blocking on the
+	// Complete channel), then let it lay out its records and draw.
+	view.fuzzyFind = app.NewFuzzyFind(ui.MessageJumpToRelatedFuzzyFind, view.relatedRows)
+	view.fuzzyFind.Resize(w, h)
+	view.fuzzyFind.ForceUpdate()
+	joined := strings.Join(renderVisibleRows(view, screen), "\n")
+
+	assert.Contains(t, joined, "Jump to a related issue", "modal prompt should render")
+	assert.Contains(t, joined, "JWC-10 child one", "related issue should be prefilled in the modal")
+	assert.Contains(t, joined, "JWC-11 child two", "all related issues should be prefilled")
 }
