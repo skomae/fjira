@@ -468,7 +468,8 @@ func Test_issueView_scroll_reaches_bottom_with_buffer(t *testing.T) {
 	rows := renderVisibleRows(view, screen)
 	joined := strings.Join(rows, "\n")
 
-	assert.Contains(t, joined, "COMMENT-MARKER-6",
+	// Comments render newest-first, so the oldest comment is the last one drawn.
+	assert.Contains(t, joined, "COMMENT-MARKER-1",
 		"last comment must be reachable at maxScrollY")
 
 	blankTrailing := 0
@@ -481,6 +482,34 @@ func Test_issueView_scroll_reaches_bottom_with_buffer(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, blankTrailing, h/3,
 		"scrolling to the bottom should leave >= screenY/3 blank buffer rows")
+}
+
+// Comments render newest-first by default; [t] toggles to oldest-first, updates
+// the bar label, and the order survives a subsequent Resize (which re-parses).
+func Test_issueView_comments_sort_toggle(t *testing.T) {
+	const w, h = 80, 60
+	screen := newDetailTestScreen(t, w, h)
+	defer screen.Fini()
+	view := NewIssueView(detailTestIssue(2), nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.Resize(w, h)
+
+	joined := strings.Join(renderVisibleRows(view, screen), "\n")
+	assert.Contains(t, joined, "COMMENT-MARKER-2")
+	assert.Less(t, strings.Index(joined, "COMMENT-MARKER-2"), strings.Index(joined, "COMMENT-MARKER-1"),
+		"newest comment should render first by default")
+
+	view.runToggleCommentsSort()
+	joined = strings.Join(renderVisibleRows(view, screen), "\n")
+	assert.Less(t, strings.Index(joined, "COMMENT-MARKER-1"), strings.Index(joined, "COMMENT-MARKER-2"),
+		"toggling should put the oldest comment first")
+	assert.Equal(t, ui.MessageCommentsOldest,
+		view.bottomBar.GetItemById(int(ui.ActionToggleCommentsSort)).Text1,
+		"bar label should reflect the current sort mode")
+
+	view.Resize(w, h)
+	joined = strings.Join(renderVisibleRows(view, screen), "\n")
+	assert.Less(t, strings.Index(joined, "COMMENT-MARKER-1"), strings.Index(joined, "COMMENT-MARKER-2"),
+		"oldest-first order should survive a re-parse on Resize")
 }
 
 // The jump modal renders over the issue view prefilled with the related tickets:

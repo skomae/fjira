@@ -8,40 +8,43 @@ import (
 	"github.com/mk-5/fjira/internal/jira"
 	"github.com/mk-5/fjira/internal/ui"
 	"math"
+	"slices"
 	"strings"
 	"time"
 )
 
 type issueView struct {
 	app.View
-	api               jira.Api
-	bottomBar         *app.ActionBar
-	topBar            *app.ActionBar
-	fuzzyFind         *app.FuzzyFind
-	issue             *jira.Issue
-	goBackFn          func()
-	descriptionLimitX int
-	descriptionLimitY int
-	scrollY           int
-	descriptionLines  int
-	commentsLines     int
-	detailsLines      int
-	maxScrollY        int
-	body              string
-	detailRows        []detailRow
-	detailLabelWidth  int
-	relatedRows       []string
-	relatedKeys       []string
-	relatedColStart   int
-	summaryLen        int
-	labels            string
-	labelsLen         int
-	comments          []comments.Comment
-	lastY             int
-	screenY           int
-	boxTitleStyle     tcell.Style
-	defaultStyle      tcell.Style
-	dimStyle          tcell.Style
+	api                 jira.Api
+	bottomBar           *app.ActionBar
+	topBar              *app.ActionBar
+	fuzzyFind           *app.FuzzyFind
+	issue               *jira.Issue
+	goBackFn            func()
+	descriptionLimitX   int
+	descriptionLimitY   int
+	scrollY             int
+	descriptionLines    int
+	commentsLines       int
+	detailsLines        int
+	maxScrollY          int
+	body                string
+	detailRows          []detailRow
+	detailLabelWidth    int
+	relatedRows         []string
+	relatedKeys         []string
+	relatedColStart     int
+	summaryLen          int
+	labels              string
+	labelsLen           int
+	comments            []comments.Comment
+	commentsNewestFirst bool
+	lastY               int
+	screenX             int
+	screenY             int
+	boxTitleStyle       tcell.Style
+	defaultStyle        tcell.Style
+	dimStyle            tcell.Style
 }
 
 var (
@@ -54,6 +57,7 @@ var (
 		ui.NavItemConfig{Action: ui.ActionCreateIssue, Text1: ui.MessageCreateIssue, Text2: "[F6]", Key: tcell.KeyF6},
 		ui.NavItemConfig{Action: ui.ActionOpen, Text1: ui.MessageOpen, Text2: "[o]", Rune: 'o'},
 		ui.NavItemConfig{Action: ui.ActionJumpToRelated, Text1: ui.MessageJumpToRelated, Text2: "[j]", Rune: 'j'},
+		ui.NavItemConfig{Action: ui.ActionToggleCommentsSort, Text1: ui.MessageCommentsNewest, Text2: "[t]", Rune: 't'},
 	}
 )
 
@@ -202,30 +206,34 @@ func NewIssueView(issue *jira.Issue, goBackFn func(), api jira.Api) app.View {
 		Text1: ui.MessageLabelUpdated,
 		Text2: app.ActionBarLabel(app.FormatRelativeTime(issue.Fields.Updated, time.Now())),
 	}))
+	// Jira returns comments oldest-first; the view defaults to newest-first so
+	// the latest activity is right below the description (see commentsNewestFirst).
 	cs := comments.ParseCommentsFromIssue(issue, 1000, 1000)
+	slices.Reverse(cs)
 	ls := strings.Join(issue.Fields.Labels, labelsDelimiter)
 	labelsLen := len(ls)
 	detailRows := buildDetailRows(issue, time.Now())
 	relatedRows, relatedKeys := buildRelatedRows(issue)
 
 	return &issueView{
-		api:              api,
-		bottomBar:        bottomBar,
-		topBar:           issueActionBar,
-		issue:            issue,
-		scrollY:          0,
-		body:             issue.Fields.Description,
-		comments:         cs,
-		labels:           ls,
-		labelsLen:        labelsLen,
-		detailRows:       detailRows,
-		detailLabelWidth: detailLabelWidth(detailRows),
-		relatedRows:      relatedRows,
-		relatedKeys:      relatedKeys,
-		summaryLen:       len(issue.Fields.Summary),
-		goBackFn:         goBackFn,
-		boxTitleStyle:    app.DefaultStyle().Foreground(app.Color("details.foreground")),
-		defaultStyle:     app.DefaultStyle(),
+		api:                 api,
+		bottomBar:           bottomBar,
+		topBar:              issueActionBar,
+		issue:               issue,
+		scrollY:             0,
+		body:                issue.Fields.Description,
+		comments:            cs,
+		commentsNewestFirst: true,
+		labels:              ls,
+		labelsLen:           labelsLen,
+		detailRows:          detailRows,
+		detailLabelWidth:    detailLabelWidth(detailRows),
+		relatedRows:         relatedRows,
+		relatedKeys:         relatedKeys,
+		summaryLen:          len(issue.Fields.Summary),
+		goBackFn:            goBackFn,
+		boxTitleStyle:       app.DefaultStyle().Foreground(app.Color("details.foreground")),
+		defaultStyle:        app.DefaultStyle(),
 		// Absolute date reuses the box-header color (details.foreground, a dim
 		// gray) so it recedes behind the brighter relative time. foreground2 is
 		// an emphasis (brighter) color, not a muted one — wrong direction here.
@@ -362,12 +370,16 @@ func (view *issueView) leftColLimit() int {
 }
 
 func (view *issueView) Resize(screenX, screenY int) {
+	view.screenX = screenX
 	view.screenY = screenY
 	view.descriptionLimitX = app.ClampInt(int(math.Floor(float64(screenX)*0.9)), 1, 10000)
 	view.descriptionLimitY = 1000
 	view.descriptionLines = app.DrawTextLimited(nil, 0, 0, view.descriptionLimitX, view.descriptionLimitY, view.defaultStyle, view.body) + 1
 	commentsLines := 0
 	view.comments = comments.ParseCommentsFromIssue(view.issue, view.descriptionLimitX, view.descriptionLimitY)
+	if view.commentsNewestFirst {
+		slices.Reverse(view.comments)
+	}
 	for _, comment := range view.comments {
 		commentsLines = commentsLines + comment.Lines + 3
 	}
@@ -498,8 +510,31 @@ func (view *issueView) handleIssueAction() {
 		case ui.ActionJumpToRelated:
 			view.runJumpToRelated()
 			return
+		case ui.ActionToggleCommentsSort:
+			view.runToggleCommentsSort()
+			return
 		}
 	}
+}
+
+// runToggleCommentsSort flips the comment thread between newest-first (the
+// default) and oldest-first. The parsed comments are reversed in place —
+// commentsLines is a sum, so the scroll math is order-independent — and the
+// [t] bar label doubles as the mode indicator, mirroring the issue browser's
+// F9 sort item. Re-arms the action handler like the other in-view actions.
+func (view *issueView) runToggleCommentsSort() {
+	view.commentsNewestFirst = !view.commentsNewestFirst
+	slices.Reverse(view.comments)
+	if item := view.bottomBar.GetItemById(int(ui.ActionToggleCommentsSort)); item != nil {
+		label := ui.MessageCommentsOldest
+		if view.commentsNewestFirst {
+			label = ui.MessageCommentsNewest
+		}
+		item.ChangeText(label, "[t]")
+		view.bottomBar.Resize(view.screenX, view.screenY)
+	}
+	app.GetApp().SetDirty()
+	go view.handleIssueAction()
 }
 
 // jumpTargets returns the rows/keys the jump modal offers: the issue's parent

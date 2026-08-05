@@ -29,6 +29,7 @@ const (
 	ActionClearFilters
 	ActionToggleSort
 	ActionJumpToRelated
+	ActionToggleCommentsSort
 )
 
 type NavItemConfig struct {
