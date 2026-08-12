@@ -80,6 +80,8 @@ const (
 	MessageClearFilters              = "clear filters "
 	MessageSortByStatus              = "sort: status "
 	MessageSortByUpdated             = "sort: updated "
+	MessageCommentsNewest            = "comments: newest "
+	MessageCommentsOldest            = "comments: oldest "
 	MessageBoards                    = "boards"
 	MessageAssignUser                = "Assign user "
 	MessageComment                   = "Comment "
