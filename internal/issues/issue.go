@@ -9,6 +9,7 @@ import (
 	"github.com/mk-5/fjira/internal/jira"
 	"github.com/mk-5/fjira/internal/ui"
 	"math"
+	"slices"
 	"strings"
 	"time"
 )
@@ -203,7 +204,10 @@ func NewIssueView(issue *jira.Issue, goBackFn func(), api jira.Api) app.View {
 		Text1: ui.MessageLabelUpdated,
 		Text2: app.ActionBarLabel(app.FormatRelativeTime(issue.Fields.Updated, time.Now())),
 	}))
+	// Jira returns comments oldest-first; show newest-first so the latest
+	// activity sits right below the description.
 	cs := comments.ParseCommentsFromIssue(issue, 1000, 1000)
+	slices.Reverse(cs)
 	ls := strings.Join(issue.Fields.Labels, labelsDelimiter)
 	labelsLen := len(ls)
 	detailRows := buildDetailRows(issue, time.Now())
@@ -369,6 +373,7 @@ func (view *issueView) Resize(screenX, screenY int) {
 	view.descriptionLines = app.DrawTextLimited(nil, 0, 0, view.descriptionLimitX, view.descriptionLimitY, view.defaultStyle, view.body) + 1
 	commentsLines := 0
 	view.comments = comments.ParseCommentsFromIssue(view.issue, view.descriptionLimitX, view.descriptionLimitY)
+	slices.Reverse(view.comments)
 	for _, comment := range view.comments {
 		commentsLines = commentsLines + comment.Lines + 3
 	}
