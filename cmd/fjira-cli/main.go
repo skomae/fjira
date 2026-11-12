@@ -25,6 +25,9 @@ func initCli() {
 	rootCmd.AddCommand(commands.GetHeadlessIssueCmd())
 	rootCmd.AddCommand(commands.GetHeadlessSearchCmd())
 	rootCmd.AddCommand(commands.GetHeadlessChildrenCmd())
+	rootCmd.AddCommand(commands.GetHeadlessCommentCmd())
+	rootCmd.AddCommand(commands.GetHeadlessTransitionCmd())
+	rootCmd.AddCommand(commands.GetHeadlessAssignCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)

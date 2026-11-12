@@ -53,12 +53,18 @@ type transitionsResponse struct {
 	Transitions []IssueTransition `json:"transitions"`
 }
 
+// doTransitionRequest is the documented POST .../transitions body:
+// {"transition": {"id": "31"}}. The transition is an object, not a bare id.
 type doTransitionRequest struct {
-	Transition string `json:"transition"`
+	Transition doTransitionRequestTransition `json:"transition"`
+}
+
+type doTransitionRequestTransition struct {
+	Id string `json:"id"`
 }
 
 func (a *httpApi) DoTransition(issueId string, transition *IssueTransition) error {
-	request := doTransitionRequest{Transition: transition.Id}
+	request := doTransitionRequest{Transition: doTransitionRequestTransition{Id: transition.Id}}
 	requestBody, _ := json.Marshal(request)
 	_, err := a.jiraRequest("POST", strings.Replace(GetTransitions, "{issue}", issueId, 1), &nilParams{}, strings.NewReader(string(requestBody)))
 	if err != nil {
@@ -68,7 +74,10 @@ func (a *httpApi) DoTransition(issueId string, transition *IssueTransition) erro
 }
 
 func (a *httpApi) FindTransitions(issueId string) ([]IssueTransition, error) {
-	responseBody, _ := a.jiraRequest("GET", strings.Replace(GetTransitions, "{issue}", issueId, 1), &nilParams{}, nil)
+	responseBody, err := a.jiraRequest("GET", strings.Replace(GetTransitions, "{issue}", issueId, 1), &nilParams{}, nil)
+	if err != nil {
+		return nil, err
+	}
 	var sResponse transitionsResponse
 	if err := json.Unmarshal(responseBody, &sResponse); err != nil {
 		app.Error(err.Error())

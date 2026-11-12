@@ -165,13 +165,16 @@ Usage:
 
 Available Commands:
   [issueKey]  Open a Jira issue directly from the CLI
+  assign      Assign an issue and print the result as JSON
   children    Print an issue's children (epic stories, sub-tasks) as JSON
+  comment     Comment on an issue and print the result as JSON
   completion  Generate the autocompletion script for the specified shell
   filters     Search using Jira filters
   help        Help about any command
   issue       Print a Jira issue (with comments) as JSON
   jql         Search using custom JQL queries
   search      Run a JQL search and print the result as JSON
+  transition  Transition an issue (or list its transitions) as JSON
   version     Print the version number of fjira
   workspace   Switch to a different workspace
 
@@ -285,6 +288,35 @@ cache file (envelope included). The fetch goes through the same code path as
 the TUI, so with `manage.cache.files` enabled these commands also warm the
 cache — handy in cron. Workspace selection and first-run setup behave exactly
 like the interactive commands, including the `FJIRA_*` environment overrides.
+
+### Headless writes
+
+Three commands change an issue without the TUI. They also require `--json`,
+and each takes `--dry-run`, which resolves everything a real run would (the
+issue, the transition, the user) with read-only requests and prints the plan
+without writing anything:
+
+```shell
+fjira comment PROJ-123 --body 'Deployed to staging' --json
+fjira comment PROJ-123 --body-file notes.md --json   # or --body-file - for stdin
+fjira transition PROJ-123 --list --json              # available transitions
+fjira transition PROJ-123 --to 'In Progress' --json --dry-run
+fjira assign PROJ-123 --to alice@example.com --json
+fjira assign PROJ-123 --me --json                    # the workspace's jiraUsername
+```
+
+- `transition --to` matches transition names and target status names,
+  case-insensitively: an exact name first, then an exact status, then a
+  unique prefix. An issue already in the target status is a no-op.
+- `assign` searches the project's assignable users. A single result wins, as
+  does an exact email, display name or account id; otherwise the candidates
+  are listed in the error.
+
+Output is one JSON document with the cache envelope (`kind` is `comment`,
+`transition`, `assign`, or `transitions` for `--list`), plus `key`, `dryRun`,
+and `changed` (on a dry run: whether a real run would change anything). A
+real run also includes `issue`, the issue re-fetched after the write, which
+refreshes its cache entry. Errors go to stderr with a non-zero exit.
 
 ## Projects search
 
