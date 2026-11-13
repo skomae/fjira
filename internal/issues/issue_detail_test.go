@@ -468,7 +468,8 @@ func Test_issueView_scroll_reaches_bottom_with_buffer(t *testing.T) {
 	rows := renderVisibleRows(view, screen)
 	joined := strings.Join(rows, "\n")
 
-	assert.Contains(t, joined, "COMMENT-MARKER-6",
+	// Comments render newest-first, so the oldest comment is the last one drawn.
+	assert.Contains(t, joined, "COMMENT-MARKER-1",
 		"last comment must be reachable at maxScrollY")
 
 	blankTrailing := 0
@@ -509,4 +510,23 @@ func Test_issueView_jumpModal_rendersRelated(t *testing.T) {
 	assert.Contains(t, joined, "Jump to a related issue", "modal prompt should render")
 	assert.Contains(t, joined, "JWC-10 child one", "related issue should be prefilled in the modal")
 	assert.Contains(t, joined, "JWC-11 child two", "all related issues should be prefilled")
+}
+
+// Comments render newest-first (Jira returns them oldest-first), and the order
+// survives a re-parse on Resize.
+func Test_issueView_comments_newest_first(t *testing.T) {
+	const w, h = 80, 60
+	screen := newDetailTestScreen(t, w, h)
+	defer screen.Fini()
+	view := NewIssueView(detailTestIssue(2), nil, jira.NewJiraApiMock(nil)).(*issueView)
+	view.Resize(w, h)
+	joined := strings.Join(renderVisibleRows(view, screen), "\n")
+	assert.Contains(t, joined, "COMMENT-MARKER-2")
+	assert.Less(t, strings.Index(joined, "COMMENT-MARKER-2"), strings.Index(joined, "COMMENT-MARKER-1"),
+		"newest comment should render first")
+
+	view.Resize(w, h)
+	joined = strings.Join(renderVisibleRows(view, screen), "\n")
+	assert.Less(t, strings.Index(joined, "COMMENT-MARKER-2"), strings.Index(joined, "COMMENT-MARKER-1"),
+		"newest-first order should survive a re-parse on Resize")
 }
