@@ -427,3 +427,30 @@ func TestDescribeUsers_capsCandidates(t *testing.T) {
 	assert.NotContains(t, got, "User 10")
 	assert.True(t, strings.HasSuffix(got, "... and 3 more"))
 }
+
+func TestHeadlessTransitionCmd_surfacesJiraRejectionReason(t *testing.T) {
+	// given - a workflow whose transition screen requires fields; Jira rejects the POST with a 400 body
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost:
+			w.WriteHeader(400)
+			_, _ = w.Write([]byte(`{"errorMessages":["Please enter an effort estimate. 0 is an acceptable choice."],"errors":{"customfield_10010":"Description is required"}}`))
+		case r.URL.Path == "/rest/api/2/issue/TEST-1":
+			_, _ = w.Write([]byte(`{"key": "TEST-1", "fields": {"summary": "s", "status": {"name": "To Do", "statusCategory": {"key": "new"}}}}`))
+		case r.URL.Path == "/rest/api/2/issue/TEST-1/transitions":
+			_, _ = w.Write([]byte(`{"transitions": [{"id": "21", "name": "Done", "to": {"id": "10001", "name": "Done"}}]}`))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+
+	// when
+	_, _, err := runHeadlessCmd(t, GetHeadlessTransitionCmd(), server.URL, "", "TEST-1", "--to", "done", "--json")
+
+	// then
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "400 Bad Request")
+	assert.ErrorContains(t, err, "Please enter an effort estimate. 0 is an acceptable choice.")
+	assert.ErrorContains(t, err, "customfield_10010: Description is required")
+}
