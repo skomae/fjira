@@ -20,10 +20,11 @@ import (
 
 func GetHeadlessIssueCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "issue [issueKey]",
-		Short:        "Print a Jira issue (with comments) as JSON",
-		Args:         cobra.ExactArgs(1),
-		SilenceUsage: true,
+		Use:           "issue [issueKey]",
+		Short:         "Print a Jira issue (with comments) as JSON",
+		Args:          cobra.ExactArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true, // main prints the error once, to stderr
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runHeadless(cmd, func(api jira.Api, workspace string) (any, error) {
 				issue, err := api.GetIssueDetailed(args[0])
@@ -42,10 +43,11 @@ func GetHeadlessIssueCmd() *cobra.Command {
 
 func GetHeadlessSearchCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "search [jql]",
-		Short:        "Run a JQL search and print the result as JSON",
-		Args:         cobra.ExactArgs(1),
-		SilenceUsage: true,
+		Use:           "search [jql]",
+		Short:         "Run a JQL search and print the result as JSON",
+		Args:          cobra.ExactArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true, // main prints the error once, to stderr
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runHeadless(cmd, func(api jira.Api, workspace string) (any, error) {
 				issues, err := api.SearchJql(args[0])
@@ -64,10 +66,11 @@ func GetHeadlessSearchCmd() *cobra.Command {
 
 func GetHeadlessChildrenCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "children [issueKey]",
-		Short:        "Print an issue's children (epic stories, sub-tasks) as JSON",
-		Args:         cobra.ExactArgs(1),
-		SilenceUsage: true,
+		Use:           "children [issueKey]",
+		Short:         "Print an issue's children (epic stories, sub-tasks) as JSON",
+		Args:          cobra.ExactArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true, // main prints the error once, to stderr
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runHeadless(cmd, func(api jira.Api, workspace string) (any, error) {
 				issues, err := api.SearchJql(cache.ChildrenJql(args[0]))
@@ -88,7 +91,7 @@ func GetHeadlessChildrenCmd() *cobra.Command {
 // the root prerun put on the context, runs fetch, and prints its result as
 // indented JSON on the command's stdout.
 func runHeadless(cmd *cobra.Command, fetch func(api jira.Api, workspace string) (any, error)) error {
-	s := cmd.Context().Value(CtxWorkspaceSettings).(*workspaces.WorkspaceSettings)
+	s := cmdWorkspaceSettings(cmd)
 	api, err := fjira.CreateApi(s)
 	if err != nil {
 		return err
@@ -99,6 +102,10 @@ func runHeadless(cmd *cobra.Command, fetch func(api jira.Api, workspace string) 
 		return err
 	}
 	return printJson(cmd.OutOrStdout(), doc)
+}
+
+func cmdWorkspaceSettings(cmd *cobra.Command) *workspaces.WorkspaceSettings {
+	return cmd.Context().Value(CtxWorkspaceSettings).(*workspaces.WorkspaceSettings)
 }
 
 func markJsonRequired(cmd *cobra.Command) {

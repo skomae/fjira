@@ -1,8 +1,10 @@
 package jira
 
 import (
+	"io"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -91,5 +93,48 @@ func Test_httpJiraApi_FindTransitions(t *testing.T) {
 				t.Errorf("FindTransitions() got = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func Test_httpJiraApi_DoTransition_sendsTransitionObject(t *testing.T) {
+	// given
+	var method, path, body string
+	api := NewJiraApiMock(func(w http.ResponseWriter, r *http.Request) {
+		method, path = r.Method, r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		body = string(raw)
+		w.WriteHeader(204)
+	})
+
+	// when
+	err := api.DoTransition("ABC-123", &IssueTransition{Id: "31", Name: "Done"})
+
+	// then - the documented shape, {"transition":{"id":"31"}}
+	if err != nil {
+		t.Fatalf("DoTransition() error = %v", err)
+	}
+	if method != "POST" || path != "/rest/api/2/issue/ABC-123/transitions" {
+		t.Errorf("DoTransition() sent %s %s", method, path)
+	}
+	if body != `{"transition":{"id":"31"}}` {
+		t.Errorf("DoTransition() body = %s", body)
+	}
+}
+
+func Test_httpJiraApi_FindTransitions_returnsRequestError(t *testing.T) {
+	// given
+	api := NewJiraApiMock(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+	})
+
+	// when
+	got, err := api.FindTransitions("ABC-404")
+
+	// then - the http error, not a deserialization error
+	if err == nil || !strings.Contains(err.Error(), "404") {
+		t.Errorf("FindTransitions() error = %v, want a 404 request error", err)
+	}
+	if got != nil {
+		t.Errorf("FindTransitions() got = %v, want nil", got)
 	}
 }
